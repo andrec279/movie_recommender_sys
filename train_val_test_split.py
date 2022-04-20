@@ -6,7 +6,6 @@ Created on Wed Apr 20 14:02:05 2022
 @author: jinishizuka
 """
 
-import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 
