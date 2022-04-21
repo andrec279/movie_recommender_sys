@@ -38,30 +38,39 @@ genome-scores: 0.3567008GB
 genome-tags: 1.8176e-05GB
 ========================
 Total:  1.28 Gigabytes
-Total Users: 283228
-Users with more than 10 ratings: 236658
 
 '''
 
-# Filter to users that have rated at least [threshold] movies to have enough data in each split
-threshold = 10
 df_ratings = pd.read_csv(files['ratings'], header=0)
+
+#%%
+# Filter to users that have rated at least [threshold] movies to have enough data in each split
+threshold = 15
+
 print('Total Users:', len(pd.unique(df_ratings['userId'])))
 df_ratings = df_ratings.groupby('userId').filter(lambda x: len(x) > threshold)
 print(f'Users with more than {threshold} ratings:', len(pd.unique(df_ratings['userId'])))
+
+
+'''
+
+Total Users: 283228
+Users with more than 15 ratings: 202390
+'''
 
 #%%
 
 # Get indices for each user and subsample (runs in about 3.5 minutes)
 
 '''
-60/20/20 Train/Val/Test Split
+60/20/20 Train/Val/Test Split on individual user basis using df.groupby.sample()
 
 1. Train split: Sample 60% of interactions for each user
 2. Validation split: Filter training indices out of full dataset, 
-   sample 50% of remainder
+   sample 50% of remaining interactions for each user
 3. Test split: Filter training and validation indices out of full dataset
 
+** Takes ~3.5 minutes to run
 '''
 
 t0 = time.time()
@@ -78,8 +87,21 @@ print('Pandas workflow takes {} minutes'.format((time.time() - t0)/60))
 
 #%%
 
+'''
+Run the following filters and checks to ensure that:
+    
+1. All users in the training set appear in the validation and test set 
+   (Note: There is no overlap in interactions data between the three splits)
+   
+2. All movies in the training set appear in the validation and test set 
+
+3. There are enough ratings per person (at least 4?) in all three splits
+
+4. There is enough data overall in all three splits
+'''
+
 print('''====================
-Before Splitting:
+Before Filtering:
 ====================\n''')
 
 print('Total DF len:', len(df_ratings.index))
@@ -104,10 +126,9 @@ print('Train:', len(train_movie_ids))
 print('Val:', len(val_movie_ids))
 print('Test:', len(test_movie_ids))
 
-'''
-Find rows corresponding movies in val and test splits that are 
-NOT in train split and remove
-'''
+
+# Find rows corresponding movies in val and test splits that are 
+# NOT in train split and remove
 
 val_missing_from_train = [movieId for movieId in val_movie_ids if movieId not in train_movie_ids]
 test_missing_from_train = [movieId for movieId in test_movie_ids if movieId not in train_movie_ids]
@@ -147,51 +168,51 @@ print('Test:', ratings_test.groupby('userId')['movieId'].count().min())
 Results:
     
 ====================
-Before Splitting:
+Before Filtering:
 ====================
 
-Total DF len: 27495774
-Train DF len: 13755953
-Val DF len: 6874893
-Test DF len: 6864928
+Total DF len: 27021197
+Train DF len: 13508246
+Val DF len: 6750827
+Test DF len: 6762124
 
 Number of users in each split:
-Total: 236658
-Train: 236658
-Val: 236658
-Test: 236658
+Total: 202390
+Train: 202390
+Val: 202390
+Test: 202390
 
 Number of movies in each split:
-Total: 53848
-Train: 46453
-Val: 38895
-Test: 38943
+Total: 53812
+Train: 46404
+Val: 38687
+Test: 38846
 
 ====================
 After Splitting:
 ====================
 
-Total DF len: 27495774
-Train DF len: 13755953
-Val DF len: 6869443
-Test DF len: 6859441
+Total DF len: 27021197
+Train DF len: 13508246
+Val DF len: 6745369
+Test DF len: 6756618
 
 Number of users in each split:
-Total: 236658
-Train: 236658
-Val: 236658
-Test: 236658
+Total: 202390
+Train: 202390
+Val: 202390
+Test: 202390
 
 Number of movies in each split:
-Total: 53848
-Train: 46453
-Val: 34506
-Test: 34519
+Total: 53812
+Train: 46404
+Val: 34311
+Test: 34426
 
 Minimum Ratings per User:
-Train: 6
-Validation: 2
-Test: 3
+Train: 8
+Validation: 4
+Test: 4
 '''
 
 #%%
