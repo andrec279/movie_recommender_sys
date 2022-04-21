@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+# Cell 0
 """
 Created on Wed Apr 20 14:04:58 2022
 
@@ -23,7 +25,7 @@ if full_data == True:
     files['genome-scores'] = 'ml-latest{}/genome-scores.csv'.format(size)
     files['genome-tags'] = 'ml-latest{}/genome-tags.csv'.format(size)
 
-#%%
+#%% Cell 1
 '''(1) PANDAS WORKFLOW'''
 
 '''
@@ -47,8 +49,20 @@ print('Total Users:', len(pd.unique(df_ratings['userId'])))
 '''
 Total Users: 283228
 '''
+#%% Cell 2
 
-#%%
+'''
+Sort all ratings data by timestamp for each user.
+Training set will be the earliest 60% of interactions for each user.
+The remaining 40% of interactions data for each user will be divided randomly between val / test
+'''
+
+df_ratings_timesort = df_ratings.sort_values(by=['userId', 'timestamp']).reset_index(drop=True)
+df_ratings_timesort['user_row_num'] = df_ratings_timesort.groupby('userId').cumcount()+1
+df_ratings_timesort['user_row_percentile'] = df_ratings_timesort['user_row_num']\
+            / df_ratings_timesort.groupby('userId')['user_row_num'].transform('last')
+
+#%% Cell 3
 
 # Get indices for each user and subsample (runs in about 3.5 minutes)
 
@@ -62,26 +76,27 @@ TODO: Incorporate time-based splitting - train on earlier examples, predict on l
 
 t0 = time.time()
 
-# 1. Train split: Sample 60% of interactions for each user
-ratings_train = df_ratings.groupby('userId').sample(frac=0.5, replace=False)
-train_index = ratings_train.index.to_list()
+# 1. Train split: Sample 60% of earliest interactions for each user
+ratings_train = df_ratings_timesort[df_ratings_timesort['user_row_percentile']<=0.6]
 
-# 2. Validation split: Filter out training indices from original data, 
-# sample 50% of remaining interactions for each user
-ratings_val = df_ratings.loc[df_ratings.index.difference(train_index), :].groupby('userId').sample(frac=0.5, replace=False)
-train_val_index = train_index + ratings_val.index.to_list()
+# Collect remainder of points into ratings_val_test
+ratings_val_test = df_ratings_timesort[df_ratings_timesort['user_row_percentile']>0.6]
 
-# 3. Test split: Filter training and validation indices out of full dataset
-ratings_test = df_ratings.loc[df_ratings.index.difference(train_val_index), :]
+# 2. Validation split: sample 50% of remaining interactions for each user in ratings_val_test
+ratings_val = ratings_val_test.groupby('userId').sample(frac=0.5, replace=False)
+ratings_val_index = ratings_val.index.to_list()
+
+# 3. Test split: Filter validation indices out of ratings_val_test to get the other 50%
+ratings_test = df_ratings.loc[df_ratings.index.difference(ratings_val_index), :]
 
 # 4. Remove individuals from val / test with fewer than [threshold] ratings
 threshold = 5
-ratings_val = ratings_val.groupby('userId').filter(lambda x: len(x) > threshold)
-ratings_test = ratings_test.groupby('userId').filter(lambda x: len(x) > threshold)
+ratings_val = ratings_val.groupby('userId').filter(lambda x: len(x) >= threshold)
+ratings_test = ratings_test.groupby('userId').filter(lambda x: len(x) >= threshold)
 
 print('Pandas workflow takes {} minutes'.format((time.time() - t0)/60))
 
-#%%
+#%% Cell 4
 
 '''
 Run the following filters and checks to ensure that:
@@ -167,51 +182,51 @@ Results:
 Before Filtering:
 ====================
 
-Total DF len: 27021197
-Train DF len: 13508246
-Val DF len: 6750827
-Test DF len: 6762124
+Total DF len: 27753444
+Train DF len: 16546935
+Val DF len: 5291538
+Test DF len: 22065229
 
 Number of users in each split:
-Total: 202390
-Train: 202390
-Val: 202390
-Test: 202390
+Total: 283228
+Train: 277608
+Val: 162480
+Test: 253751
 
 Number of movies in each split:
-Total: 53812
-Train: 46404
-Val: 38687
-Test: 38846
+Total: 53889
+Train: 39792
+Val: 42410
+Test: 46695
 
 ====================
 After Filtering:
 ====================
 
-Total DF len: 27021197
-Train DF len: 13508246
-Val DF len: 6745369
-Test DF len: 6756618
+Total DF len: 27753444
+Train DF len: 16546935
+Val DF len: 5278165
+Test DF len: 22051332
 
 Number of users in each split:
-Total: 202390
-Train: 202390
-Val: 202390
-Test: 202390
+Total: 283228
+Train: 277608
+Val: 162480
+Test: 253751
 
 Number of movies in each split:
-Total: 53812
-Train: 46404
-Val: 34311
-Test: 34426
+Total: 53889
+Train: 39792
+Val: 33433
+Test: 37487
 
 Minimum Ratings per User:
-Train: 8
-Validation: 4
-Test: 4
+Train: 1
+Validation: 5
+Test: 5
 '''
 
-#%%
+#%% Cell 5
 
 ratings_train.to_csv('ratings_train.csv')
 ratings_val.to_csv('ratings_val.csv')
