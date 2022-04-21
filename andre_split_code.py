@@ -42,20 +42,10 @@ Total:  1.28 Gigabytes
 '''
 
 df_ratings = pd.read_csv(files['ratings'], header=0)
-
-#%%
-# Filter to users that have rated at least [threshold] movies to have enough data in each split
-threshold = 15
-
 print('Total Users:', len(pd.unique(df_ratings['userId'])))
-df_ratings = df_ratings.groupby('userId').filter(lambda x: len(x) > threshold)
-print(f'Users with more than {threshold} ratings:', len(pd.unique(df_ratings['userId'])))
-
 
 '''
-
 Total Users: 283228
-Users with more than 15 ratings: 202390
 '''
 
 #%%
@@ -65,23 +55,29 @@ Users with more than 15 ratings: 202390
 '''
 60/20/20 Train/Val/Test Split on individual user basis using df.groupby.sample()
 
-1. Train split: Sample 60% of interactions for each user
-2. Validation split: Filter training indices out of full dataset, 
-   sample 50% of remaining interactions for each user
-3. Test split: Filter training and validation indices out of full dataset
-
 ** Takes ~3.5 minutes to run
+
+TODO: Incorporate time-based splitting - train on earlier examples, predict on later examples
 '''
 
 t0 = time.time()
 
+# 1. Train split: Sample 60% of interactions for each user
 ratings_train = df_ratings.groupby('userId').sample(frac=0.5, replace=False)
 train_index = ratings_train.index.to_list()
 
+# 2. Validation split: Filter out training indices from original data, 
+# sample 50% of remaining interactions for each user
 ratings_val = df_ratings.loc[df_ratings.index.difference(train_index), :].groupby('userId').sample(frac=0.5, replace=False)
 train_val_index = train_index + ratings_val.index.to_list()
 
+# 3. Test split: Filter training and validation indices out of full dataset
 ratings_test = df_ratings.loc[df_ratings.index.difference(train_val_index), :]
+
+# 4. Remove individuals from val / test with fewer than [threshold] ratings
+threshold = 5
+ratings_val = ratings_val.groupby('userId').filter(lambda x: len(x) > threshold)
+ratings_test = ratings_test.groupby('userId').filter(lambda x: len(x) > threshold)
 
 print('Pandas workflow takes {} minutes'.format((time.time() - t0)/60))
 
@@ -138,7 +134,7 @@ ratings_test_filtered = ratings_test[~ratings_test['movieId'].isin(test_missing_
 
 
 print('''\n====================
-After Splitting:
+After Filtering:
 ====================\n''')
 
 print('Total DF len:', len(df_ratings.index))
@@ -189,7 +185,7 @@ Val: 38687
 Test: 38846
 
 ====================
-After Splitting:
+After Filtering:
 ====================
 
 Total DF len: 27021197
