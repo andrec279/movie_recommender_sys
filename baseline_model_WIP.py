@@ -45,15 +45,9 @@ def main(spark, netID):
     damping_factor = 0
     
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
-    ratings_train.show()
-    
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
-    ratings_train.show()
-
     ratings_train = ratings_train.sort('rating_score', ascending=False)
     ratings_train.show()
-
-    #baseline_ranking  = ratings_train['movieId']
 
 #    baseline_ranking = spark.sql('''
 #                                 SELECT movieId
@@ -66,13 +60,14 @@ def main(spark, netID):
 #				     ) as a
 #                                 ''')
     
-    #print('baseline rankings by movieId:')
-    #baseline_ranking.show() 
     
-    #convert baseline_ranking to list                             
-    baseline_ranking_list = ratings_train.select('movieId').rdd.flatMap(lambda x: x).collect()
-    print(baseline_ranking_list[:20])    
-                             
+    #create baseline rankings list from modified ratings_train dataframe
+    #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
+    baseline_ranking_list = ratings_train.select('movieId').rdd.flatMap(lambda x: x).collect()[:100]
+    print('baseline rankings by movieId:')
+    print(baseline_ranking_list)    
+          
+                   
     #create ground truth rankings by user from validation set
     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
