@@ -15,7 +15,7 @@ import getpass
 
 netID = getpass.getuser()
 
-full_data = True
+full_data = False
 
 size = '-small' if full_data==False else ''
 
