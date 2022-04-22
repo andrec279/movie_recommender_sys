@@ -48,7 +48,7 @@ def main(spark, netID):
     ratings_val = ratings_val_test.groupby('userId').sample(frac=0.5, replace=False, random_state=1)
     ratings_val_index = ratings_val.index.to_list()
     
-    ratings_test = df_ratings.loc[df_ratings.index.difference(ratings_val_index), :]
+    ratings_test = ratings_val_test.loc[ratings_val_test.index.difference(ratings_val_index), :]
     
     threshold = 5
     ratings_val = ratings_val.groupby('userId').filter(lambda x: len(x) >= threshold)
