@@ -24,39 +24,67 @@ def main(spark, netID):
     '''
 
     #load train, val, test data into DataFrames
-    ratings_train = spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv')
-    ratings_val = spark.read.csv(f'hdfs:/user/{netID}/ratings_val.csv')
-    ratings_test = spark.read.csv(f'hdfs:/user/{netID}/ratings_test.csv')
+    ratings_train = spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv', 
+				   header='true', 
+				   schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
+    ratings_val = spark.read.csv(f'hdfs:/user/{netID}/ratings_val.csv', 
+				 header='true',
+				 schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
+    ratings_test = spark.read.csv(f'hdfs:/user/{netID}/ratings_test.csv', 
+				  header='true',
+				  schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
     
     ratings_train.createOrReplaceTempView('ratings_train')
     ratings_val.createOrReplaceTempView('ratings_val')
     ratings_test.createOrReplaceTempView('ratings_test')
     
+    #ratings_train.printSchema()
+    
     #create baseline ranking
     baseline_ranking = spark.sql('''
                                  SELECT movieId
-                                 FROM
+                                 FROM(
                                      SELECT movieId, AVG(rating)
                                      FROM ratings_train
                                      GROUP BY 1
                                      ORDER BY 2 DESC
                                      LIMIT 100
-                                 ''') 
+				     ) as a
+                                 ''')
+    #baseline_ranking.show() 
                                  
     baseline_ranking_list = baseline_ranking.select('movieId').rdd.flatMap(lambda x: x).collect()
                                  
     #create ground truth rankings by user from validation set
     #to do: limit top 100 movies by user
-    ratings_val = ratings_val.sort_values(by=['userId', 'rating'], ascending=False)
+    ratings_val = ratings_val.sort(['userId', 'rating'], ascending=False)
     
     #create rdd to imput into RankingMetrics evaluation
     eval_df = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-    eval_df = eval_df.withColumn('true_pred_pair',  (baseline_ranking_list, eval_df['movieID']))
-    
     eval_df.show()
     
+    eval_df = eval_df.withColumn('true_pred_pair',  (baseline_ranking_list, eval_df['collect_list(movieId)']))
+    
+    eval_df.show()
+
+
+    #evaluate eval_df with RankingMetrics
+    
+
+
+
     
     
+# Only enter this block if we're in main
+if __name__ == "__main__":
+    # Create the spark session object
+    spark = SparkSession.builder.appName('part1').getOrCreate()
+
+    # Get user netID from the command line
+    netID = getpass.getuser()
+
+    # Call our main routine
+    main(spark, netID) 
     
     
     
