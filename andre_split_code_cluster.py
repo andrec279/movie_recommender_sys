@@ -232,8 +232,8 @@ Test: 5
 
 #%% Cell 5
 
-ratings_train.to_parquet('hdfs:/user/{netID}/ratings_train.parquet', partition_cols=['movieId'])
-ratings_val.to_parquet('hdfs:/user/{netID}/ratings_val.parquet', , partition_cols=['movieId'])
-ratings_test.to_parquet('hdfs:/user/{netID}/ratings_test.csv', , partition_cols=['movieId'])
+ratings_train.to_csv('hdfs:/user/{netID}/ratings_train.csv')
+ratings_val.to_csv('hdfs:/user/{netID}/ratings_val.csv')
+ratings_test.to_csv('hdfs:/user/{netID}/ratings_test.csv')
 
 print('\nTrain/Validation/Split files written successfully')
