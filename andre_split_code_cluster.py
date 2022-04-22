@@ -232,8 +232,8 @@ Test: 5
 
 #%% Cell 5
 
-ratings_train.to_csv(f'hdfs:/user/{netID}/ratings_train.csv')
-ratings_val.to_csv(f'hdfs:/user/{netID}/ratings_val.csv')
-ratings_test.to_csv(f'hdfs:/user/{netID}/ratings_test.csv')
+ratings_train.to_csv('ratings_train.csv')
+ratings_val.to_csv('ratings_val.csv')
+ratings_test.to_csv('ratings_test.csv')
 
 print('\nTrain/Validation/Split files written successfully')
