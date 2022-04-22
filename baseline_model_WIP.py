@@ -40,24 +40,38 @@ def main(spark, netID):
     ratings_val.createOrReplaceTempView('ratings_val')
     ratings_test.createOrReplaceTempView('ratings_test')
     
-
     #create baseline ranking
-    baseline_ranking = spark.sql('''
-                                 SELECT movieId
-                                 FROM(
-                                     SELECT movieId, AVG(rating)
-                                     FROM ratings_train
-                                     GROUP BY 1
-                                     ORDER BY 2 DESC
-                                     LIMIT 100
-				     ) as a
-                                 ''')
-    print('baseline rankings by movieId:')
-    baseline_ranking.show() 
+
+    damping_factor = 0
+    
+    ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
+    ratings_train.show()
+    
+    ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
+    ratings_train.show()
+
+    ratings_train = ratings_train.sort('rating_score', ascending=False)
+    ratings_train.show()
+
+    #baseline_ranking  = ratings_train['movieId']
+
+#    baseline_ranking = spark.sql('''
+#                                 SELECT movieId
+#                                 FROM(
+#                                     SELECT movieId, AVG(rating)
+#                                     FROM ratings_train
+#                                     GROUP BY 1
+#                                     ORDER BY 2 DESC
+#                                     LIMIT 100
+#				     ) as a
+#                                 ''')
+    
+    #print('baseline rankings by movieId:')
+    #baseline_ranking.show() 
     
     #convert baseline_ranking to list                             
-    baseline_ranking_list = baseline_ranking.select('movieId').rdd.flatMap(lambda x: x).collect()
-    
+    baseline_ranking_list = ratings_train.select('movieId').rdd.flatMap(lambda x: x).collect()
+    print(baseline_ranking_list[:20])    
                              
     #create ground truth rankings by user from validation set
     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
