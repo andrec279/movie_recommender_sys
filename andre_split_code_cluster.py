@@ -12,6 +12,7 @@ import pandas as pd
 import time
 import numpy as np
 import getpass
+from pyspark.sql import SparkSession
 
 netID = getpass.getuser()
 
@@ -232,8 +233,16 @@ Test: 5
 
 #%% Cell 5
 
-ratings_train.to_csv('ratings_train.csv')
-ratings_val.to_csv('ratings_val.csv')
-ratings_test.to_csv('ratings_test.csv')
+# Convert to spark to write to HDFS
+
+spark = SparkSession.builder.appName('final_proj_split').getOrCreate()
+
+ratings_train = spark.createDataFrame(ratings_train)
+ratings_val = spark.createDataFrame(ratings_val)
+ratings_test = spark.createDataFrame(ratings_test)
+
+ratings_train.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_train.csv')
+ratings_val.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_val.csv')
+ratings_test.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_test.csv')
 
 print('\nTrain/Validation/Split files written successfully')
