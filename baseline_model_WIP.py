@@ -13,6 +13,8 @@ import getpass
 from pyspark.sql import SparkSession
 from pyspark.mllib.evaluation import RankingMetrics
 from pyspark.sql.functions import collect_list
+from pyspark.sql import Window
+from pyspark.sql import functions as F
 
 
 def main(spark, netID):
@@ -38,8 +40,7 @@ def main(spark, netID):
     ratings_val.createOrReplaceTempView('ratings_val')
     ratings_test.createOrReplaceTempView('ratings_test')
     
-    #ratings_train.printSchema()
-    
+
     #create baseline ranking
     baseline_ranking = spark.sql('''
                                  SELECT movieId
@@ -51,27 +52,34 @@ def main(spark, netID):
                                      LIMIT 100
 				     ) as a
                                  ''')
-    #baseline_ranking.show() 
-                                 
+    print('baseline rankings by movieId:')
+    baseline_ranking.show() 
+    
+    #convert baseline_ranking to list                             
     baseline_ranking_list = baseline_ranking.select('movieId').rdd.flatMap(lambda x: x).collect()
-                                 
+    
+                             
     #create ground truth rankings by user from validation set
-    #to do: limit top 100 movies by user
-    ratings_val = ratings_val.sort(['userId', 'rating'], ascending=False)
+    windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
     
+    ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
+
+    ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
+    
+    print('ground truth rankings by user from validation set:')
+    ratings_val.show()
+    
+
     #create rdd to imput into RankingMetrics evaluation
-    eval_df = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-    eval_df.show()
+    pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
+    pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
+        
     
-    eval_df = eval_df.withColumn('true_pred_pair',  (baseline_ranking_list, eval_df['collect_list(movieId)']))
+    #evaluate baseline rankings on validation set with rankingMetrics
+    eval_metrics = RankingMetrics(pred_and_labels_rdd)
+    print('mean average precision: ', eval_metrics.meanAveragePrecision)
     
-    eval_df.show()
-
-
-    #evaluate eval_df with RankingMetrics
-    
-
-
 
     
     
