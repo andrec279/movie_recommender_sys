@@ -130,22 +130,24 @@ def main(spark, netID):
     # Convert to spark to write to HDFS
     cols = ['userId', 'movieId', 'rating', 'timestamp']
     
-    ratings_train = spark.createDataFrame(ratings_train[cols])
-    ratings_val = spark.createDataFrame(ratings_val[cols])
-    ratings_test = spark.createDataFrame(ratings_test[cols])
+    local_save = True # Set = True for debugging on local machine
     
-    # ratings_train.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_train.csv')
-    # ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val.csv')
-    # ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test.csv')
+    if local_save == True:
+        ratings_train.to_csv('ratings_train.csv')
+        ratings_val.to_csv('ratings_val.csv')
+        ratings_test.to_csv('ratings_test.csv')
     
-    # Local save on peel:
+    else:
     
-    ratings_train.write.mode('overwrite').option("header",True).csv('ratings_train.csv')
-    ratings_val.write.mode('overwrite').option("header",True).csv('ratings_val.csv')
-    ratings_test.write.mode('overwrite').option("header",True).csv('ratings_test.csv')
+        ratings_train = spark.createDataFrame(ratings_train[cols])
+        ratings_val = spark.createDataFrame(ratings_val[cols])
+        ratings_test = spark.createDataFrame(ratings_test[cols])
         
+        ratings_train.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_train.csv')
+        ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val.csv')
+        ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test.csv')
     
-    print('\nTrain/Validation/Split files written successfully')
+    print('\nTrain/Validation/Split files written successfully with local mode = {}'.format(local_save))
     print('\nTest output for ratings_train:')
     print(ratings_train.show(10))
     
