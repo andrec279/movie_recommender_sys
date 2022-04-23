@@ -128,10 +128,11 @@ def main(spark, netID):
     print('Test:', ratings_test.groupby('userId')['movieId'].count().min())
 
     # Convert to spark to write to HDFS
-
-    ratings_train = spark.createDataFrame(ratings_train)
-    ratings_val = spark.createDataFrame(ratings_val)
-    ratings_test = spark.createDataFrame(ratings_test)
+    cols = ['userId', 'movieId', 'rating', 'timestamp']
+    
+    ratings_train = spark.createDataFrame(ratings_train[cols])
+    ratings_val = spark.createDataFrame(ratings_val[cols])
+    ratings_test = spark.createDataFrame(ratings_test[cols])
     
     ratings_train.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_train.csv')
     ratings_val.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_val.csv')
