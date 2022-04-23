@@ -13,6 +13,8 @@ import getpass
 from pyspark.sql import SparkSession
 from pyspark.mllib.evaluation import RankingMetrics
 from pyspark.sql.functions import collect_list
+from pyspark.sql import Window
+from pyspark.sql import functions as F
 
 
 def main(spark, netID):
@@ -38,40 +40,55 @@ def main(spark, netID):
     ratings_val.createOrReplaceTempView('ratings_val')
     ratings_test.createOrReplaceTempView('ratings_test')
     
-    #ratings_train.printSchema()
-    
     #create baseline ranking
-    baseline_ranking = spark.sql('''
-                                 SELECT movieId
-                                 FROM(
-                                     SELECT movieId, AVG(rating)
-                                     FROM ratings_train
-                                     GROUP BY 1
-                                     ORDER BY 2 DESC
-                                     LIMIT 100
-				     ) as a
-                                 ''')
-    #baseline_ranking.show() 
-                                 
-    baseline_ranking_list = baseline_ranking.select('movieId').rdd.flatMap(lambda x: x).collect()
-                                 
+
+    damping_factor = 0
+    
+    ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
+    ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
+    ratings_train = ratings_train.sort('rating_score', ascending=False)
+    ratings_train.show()
+
+#    baseline_ranking = spark.sql('''
+#                                 SELECT movieId
+#                                 FROM(
+#                                     SELECT movieId, AVG(rating)
+#                                     FROM ratings_train
+#                                     GROUP BY 1
+#                                     ORDER BY 2 DESC
+#                                     LIMIT 100
+#				     ) as a
+#                                 ''')
+    
+    
+    #create baseline rankings list from modified ratings_train dataframe
+    #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
+    baseline_ranking_list = ratings_train.select('movieId').rdd.flatMap(lambda x: x).collect()[:100]
+    print('baseline rankings by movieId:')
+    print(baseline_ranking_list)    
+          
+                   
     #create ground truth rankings by user from validation set
-    #to do: limit top 100 movies by user
-    ratings_val = ratings_val.sort(['userId', 'rating'], ascending=False)
+    windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
     
+    ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
+
+    ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
+    
+    print('ground truth rankings by user from validation set:')
+    ratings_val.show()
+    
+
     #create rdd to imput into RankingMetrics evaluation
-    eval_df = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-    eval_df.show()
+    pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
+    pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
+        
     
-    eval_df = eval_df.withColumn('true_pred_pair',  (baseline_ranking_list, eval_df['collect_list(movieId)']))
+    #evaluate baseline rankings on validation set with rankingMetrics
+    eval_metrics = RankingMetrics(pred_and_labels_rdd)
+    print('mean average precision: ', eval_metrics.meanAveragePrecision)
     
-    eval_df.show()
-
-
-    #evaluate eval_df with RankingMetrics
-    
-
-
 
     
     
