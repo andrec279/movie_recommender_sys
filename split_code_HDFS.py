@@ -133,9 +133,9 @@ def main(spark, netID):
     local_save = True # Set = True for debugging on local machine
     
     if local_save == True:
-        ratings_train.to_csv('ratings_train.csv')
-        ratings_val.to_csv('ratings_val.csv')
-        ratings_test.to_csv('ratings_test.csv')
+        ratings_train[cols].to_csv('/home/alc9635/final-project-group_4/ratings_train.csv')
+        ratings_val[cols].to_csv('/home/alc9635/final-project-group_4/ratings_val.csv')
+        ratings_test[cols].to_csv('/home/alc9635/final-project-group_4/ratings_test.csv')
         
         print('\nTrain/Validation/Split files written successfully to local Peel user folder')
         print('\nTest output for ratings_train:')
