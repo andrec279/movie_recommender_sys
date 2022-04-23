@@ -15,7 +15,7 @@ from pyspark.mllib.evaluation import RankingMetrics
 from pyspark.sql.functions import collect_list
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-
+from pyspark.sql.functions import row_number, lit
 
 def main(spark, netID=None):
     '''Main routine for Lab Solutions
@@ -44,30 +44,20 @@ def main(spark, netID=None):
     damping_factor = 0
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
-    ratings_train = ratings_train.sort('rating_score', ascending=False)
-    print('ratings_train baseline sorted DF:')
-    ratings_train.show()
-
-#    baseline_ranking = spark.sql('''
-#                                 SELECT movieId
-#                                 FROM(
-#                                     SELECT movieId, AVG(rating)
-#                                     FROM ratings_train
-#                                     GROUP BY 1
-#                                     ORDER BY 2 DESC
-#                                     LIMIT 100
-#				     ) as a
-#                                 ''')
     
+    ratings_train = ratings_train.toPandas()
+    ratings_train = ratings_train.sort_values('rating_score', ascending=False).head(100)
+    print('ratings_train baseline sorted DF:')
+    print(ratings_train)
+    
+    print('sorted movies list:')
+    print(ratings_train['movieId'].values)
     
     #create baseline rankings list from modified ratings_train dataframe
     #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
-    ratings_top100 = ratings_train.take(10)
-    print('top 100 ratings df')
-    print(ratings_top100)
-    baseline_ranking_list = ratings_train.select('movieId')#.rdd.flatMap(lambda x: x).collect()[:100]
-    print('baseline rankings by movieId:')
-    print(baseline_ranking_list)    
+    # baseline_ranking_list = ratings_train.select('movieId')#.rdd.flatMap(lambda x: x).collect()[:100]
+    # print('baseline rankings by movieId:')
+    # print(baseline_ranking_list)    
           
                    
     #create ground truth rankings by user from validation set
