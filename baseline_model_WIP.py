@@ -43,7 +43,8 @@ def main(spark, netID):
     #create baseline ranking
 
     damping_factor = 0
-    
+    print('original ratings_train:')
+    ratings_train.show()
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
     ratings_train = ratings_train.sort('rating_score', ascending=False)
@@ -70,26 +71,29 @@ def main(spark, netID):
           
                    
     #create ground truth rankings by user from validation set
-    windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-    ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
     
-    ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
-
-    ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-    
-    print('ground truth rankings by user from validation set:')
-    ratings_val.show()
-    
-
-    #create rdd to imput into RankingMetrics evaluation
-    pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
-    pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
-        
-    
-    #evaluate baseline rankings on validation set with rankingMetrics
-    eval_metrics = RankingMetrics(pred_and_labels_rdd)
-    print('mean average precision: ', eval_metrics.meanAveragePrecision)
-    
+# =============================================================================
+#     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+#     ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
+#     
+#     ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
+# 
+#     ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
+#     
+#     print('ground truth rankings by user from validation set:')
+#     ratings_val.show()
+#     
+# 
+#     #create rdd to imput into RankingMetrics evaluation
+#     pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
+#     pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
+#         
+#     
+#     #evaluate baseline rankings on validation set with rankingMetrics
+#     eval_metrics = RankingMetrics(pred_and_labels_rdd)
+#     print('mean average precision: ', eval_metrics.meanAveragePrecision)
+#     
+# =============================================================================
 
     
     
