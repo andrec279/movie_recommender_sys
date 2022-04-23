@@ -62,9 +62,9 @@ def main(spark, netID):
     
     #create baseline rankings list from modified ratings_train dataframe
     #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
-    ratings_top100 = ratings_train.collect()[:100]
+    ratings_top100 = ratings_train.take(100)
     print('top 100 ratings df')
-    ratings_top100.show()
+    print(ratings_top100)
     baseline_ranking_list = ratings_train.select('movieId')#.rdd.flatMap(lambda x: x).collect()[:100]
     print('baseline rankings by movieId:')
     print(baseline_ranking_list)    
