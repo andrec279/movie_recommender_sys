@@ -140,7 +140,7 @@ def main(spark, netID):
     
     print('\nTrain/Validation/Split files written successfully')
     print('\nTest output for ratings_train:')
-    print(ratings_train.head())
+    print(ratings_train.show(10))
     
 
 # Only enter this block if we're in main
