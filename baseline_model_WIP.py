@@ -47,6 +47,7 @@ def main(spark, netID):
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
     ratings_train = ratings_train.sort('rating_score', ascending=False)
+    print('ratings_train baseline sorted DF:')
     ratings_train.show()
 
 #    baseline_ranking = spark.sql('''
