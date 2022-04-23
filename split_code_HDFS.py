@@ -134,9 +134,9 @@ def main(spark, netID):
     ratings_val = spark.createDataFrame(ratings_val[cols])
     ratings_test = spark.createDataFrame(ratings_test[cols])
     
-    ratings_train.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_train.csv')
-    ratings_val.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_val.csv')
-    ratings_test.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_test.csv')
+    ratings_train.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_train.csv')
+    ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val.csv')
+    ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test.csv')
     
     print('\nTrain/Validation/Split files written successfully')
     print('\nTest output for ratings_train:')
