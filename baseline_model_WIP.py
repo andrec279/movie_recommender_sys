@@ -28,13 +28,13 @@ def main(spark, netID):
     #load train, val, test data into DataFrames
     ratings_train = spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv', 
 				   header='true', 
-				   schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
+				   schema='index INT, userId INT, movieId INT, rating FLOAT, timestamp INT')
     ratings_val = spark.read.csv(f'hdfs:/user/{netID}/ratings_val.csv', 
 				 header='true',
-				 schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
+				 schema='index INT, userId INT, movieId INT, rating FLOAT, timestamp INT')
     ratings_test = spark.read.csv(f'hdfs:/user/{netID}/ratings_test.csv', 
 				  header='true',
-				  schema='index INT, userId INT, movieID INT, rating FLOAT, timestamp INT, user_row_num INT, user_row_percentile FLOAT')
+				  schema='index INT, userId INT, movieId INT, rating FLOAT, timestamp INT')
     
     ratings_train.createOrReplaceTempView('ratings_train')
     ratings_val.createOrReplaceTempView('ratings_val')
