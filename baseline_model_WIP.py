@@ -17,21 +17,23 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 
-def main(spark, netID):
+def main(spark, netID=None):
     '''Main routine for Lab Solutions
     Parameters
     ----------
     spark : SparkSession object
     netID : string, netID of student to find files in HDFS
     '''
-
+    
+    if local_source == False:
+        path_to_file = f'hdfs:/user/{netID}/'
+    else:
+        path_to_file = ''
+        
     #load train, val, test data into DataFrames
-    ratings_train = spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv', 
-				   header='true')
-    ratings_val = spark.read.csv(f'hdfs:/user/{netID}/ratings_val.csv', 
-				 header='true')
-    ratings_test = spark.read.csv(f'hdfs:/user/{netID}/ratings_test.csv', 
-				  header='true')
+    ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true')
+    ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true')
+    ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true')
     
     ratings_train.createOrReplaceTempView('ratings_train')
     ratings_val.createOrReplaceTempView('ratings_val')
@@ -99,9 +101,14 @@ def main(spark, netID):
 if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
-
-    # Get user netID from the command line
-    netID = getpass.getuser()
+    
+    local_source = True # For local testing
+     
+    if local_source == False:
+        # Get user netID from the command line
+        netID = getpass.getuser()
+    else:
+        netID = None
 
     # Call our main routine
     main(spark, netID) 
