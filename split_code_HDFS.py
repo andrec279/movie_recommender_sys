@@ -137,7 +137,7 @@ def main(spark, netID):
         ratings_val.to_csv('ratings_val.csv')
         ratings_test.to_csv('ratings_test.csv')
         
-        print('\nTrain/Validation/Split files written successfully to local Peel user folder'
+        print('\nTrain/Validation/Split files written successfully to local Peel user folder')
         print('\nTest output for ratings_train:')
         print(pd.read_csv('ratings_train.csv').head(10))
     
@@ -151,7 +151,7 @@ def main(spark, netID):
         ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val.csv')
         ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test.csv')
     
-        print('\nTrain/Validation/Split files written successfully to HDFS'
+        print('\nTrain/Validation/Split files written successfully to HDFS')
         print('\nTest output for ratings_train:')
         print(spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv', header='true').show(10))
     
