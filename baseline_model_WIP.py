@@ -40,8 +40,6 @@ def main(spark, netID):
     #create baseline ranking
 
     damping_factor = 0
-    print('original ratings_train:')
-    ratings_train.show()
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
     ratings_train = ratings_train.sort('rating_score', ascending=False)
@@ -62,7 +60,7 @@ def main(spark, netID):
     
     #create baseline rankings list from modified ratings_train dataframe
     #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
-    ratings_top100 = ratings_train.take(100)
+    ratings_top100 = ratings_train.take(10)
     print('top 100 ratings df')
     print(ratings_top100)
     baseline_ranking_list = ratings_train.select('movieId')#.rdd.flatMap(lambda x: x).collect()[:100]
