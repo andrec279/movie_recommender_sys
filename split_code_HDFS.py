@@ -139,6 +139,9 @@ def main(spark, netID):
     ratings_test.write.mode('overwrite').csv(f'hdfs:/user/{netID}/ratings_test.csv')
     
     print('\nTrain/Validation/Split files written successfully')
+    print('\nTest output for ratings_train:')
+    print(ratings_train.head())
+    
 
 # Only enter this block if we're in main
 if __name__ == "__main__":
