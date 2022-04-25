@@ -38,52 +38,43 @@ def main(spark, netID=None):
     ratings_train.createOrReplaceTempView('ratings_train')
     ratings_val.createOrReplaceTempView('ratings_val')
     ratings_test.createOrReplaceTempView('ratings_test')
-    
-    #create baseline ranking
-
-    damping_factor = 0
+ 
+   
+    #sort ratings_train df by movie rating score
+    damping_factor = 100
     ratings_train = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
     ratings_train = ratings_train.withColumn('rating_score', ratings_train.rating_sum / (ratings_train.rating_count + damping_factor))    
-    
-    ratings_train = ratings_train.toPandas()
-    ratings_train = ratings_train.sort_values('rating_score', ascending=False).head(100)
+    ratings_train = ratings_train.sort('rating_score', ascending=False)
     print('ratings_train baseline sorted DF:')
-    print(ratings_train)
+    ratings_train.show()
+
     
-    print('sorted movies list:')
-    print(ratings_train['movieId'].values)
-    
-    #create baseline rankings list from modified ratings_train dataframe
-    #TO FIX: baseline ranking list does not currently preserve order from sorted ratings_train df                                 
-    # baseline_ranking_list = ratings_train.select('movieId')#.rdd.flatMap(lambda x: x).collect()[:100]
-    # print('baseline rankings by movieId:')
-    # print(baseline_ranking_list)    
+    #create baseline rankings list                               
+    ratings_train_pd = ratings_train.toPandas()
+    baseline_ranking_list = list(ratings_train_pd['movieId'])[:100]
+    print('baseline ranking list:')
+    print(baseline_ranking_list)
           
                    
     #create ground truth rankings by user from validation set
-    
-# =============================================================================
-#     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-#     ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
-#     
-#     ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
-# 
-#     ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-#     
-#     print('ground truth rankings by user from validation set:')
-#     ratings_val.show()
-#     
-# 
-#     #create rdd to imput into RankingMetrics evaluation
-#     pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
-#     pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
-#         
-#     
-#     #evaluate baseline rankings on validation set with rankingMetrics
-#     eval_metrics = RankingMetrics(pred_and_labels_rdd)
-#     print('mean average precision: ', eval_metrics.meanAveragePrecision)
-#     
-# =============================================================================
+    windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
+    ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
+    ratings_val.show() 
+    ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
+    print('ground truth rankings by user from validation set:')
+    ratings_val.show()
+     
+
+    #create rdd to imput into RankingMetrics evaluation
+    pred_and_labels = [(baseline_ranking_list, row['collect_list(movieId)']) for row in ratings_val.rdd.collect()]
+    pred_and_labels_rdd = spark.sparkContext.parallelize(pred_and_labels)    
+         
+     
+    #evaluate baseline rankings on validation set with rankingMetrics
+    eval_metrics = RankingMetrics(pred_and_labels_rdd)
+    print('mean average precision: ', eval_metrics.meanAveragePrecision)
+
 
     
     

@@ -19,14 +19,19 @@ def main(spark, netID):
     full_data = False
     size = '-small' if full_data==False else ''
 
-    files = {'ratings': '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/ratings.csv'.format(size),
-             'movies': '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/movies.csv'.format(size),
-             'links': '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/links.csv'.format(size),
-             'tags': '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/tags.csv'.format(size)}
+    if local_save==True:
+        path = 'ml-latest{}/'.format(size)
+    else:
+        path = '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/'.format(size)
+
+    files = {'ratings': path + 'ratings.csv',
+             'movies': path + 'movies.csv',
+             'links': path + 'links.csv',
+             'tags': path + 'tags.csv'}
     
     if full_data == True:
-        files['genome-scores'] = '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/genome-scores.csv'.format(size)
-        files['genome-tags'] = '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/genome-tags.csv'.format(size)
+        files['genome-scores'] = path + 'genome-scores.csv'
+        files['genome-tags'] = path + 'genome-tags.csv'
 
     df_ratings = pd.read_csv(files['ratings'], header=0)
     print('Total Users:', len(pd.unique(df_ratings['userId'])))
@@ -130,12 +135,10 @@ def main(spark, netID):
     # Convert to spark to write to HDFS
     cols = ['userId', 'movieId', 'rating', 'timestamp']
     
-    local_save = True # Set = True for debugging on local machine
-    
     if local_save == True:
-        ratings_train[cols].to_csv('/home/alc9635/final-project-group_4/ratings_train.csv')
-        ratings_val[cols].to_csv('/home/alc9635/final-project-group_4/ratings_val.csv')
-        ratings_test[cols].to_csv('/home/alc9635/final-project-group_4/ratings_test.csv')
+        ratings_train[cols].to_csv('ratings_train.csv')
+        ratings_val[cols].to_csv('ratings_val.csv')
+        ratings_test[cols].to_csv('ratings_test.csv')
         
         print('\nTrain/Validation/Split files written successfully to local Peel user folder')
         print('\nTest output for ratings_train:')
@@ -163,6 +166,8 @@ if __name__ == "__main__":
 
     # Get user netID from the command line
     netID = getpass.getuser()
+
+    local_save = True # Set = True for debugging on local machine
 
     # Call our main routine
     main(spark, netID) 
