@@ -164,10 +164,13 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
 
-    # Get user netID from the command line
-    netID = getpass.getuser()
-
     local_save = True # Set = True for debugging on local machine
+    
+    if local_save == False:
+        # Get user netID from the command line
+        netID = getpass.getuser()
+    else:
+        netID = None
 
     # Call our main routine
     main(spark, netID) 
