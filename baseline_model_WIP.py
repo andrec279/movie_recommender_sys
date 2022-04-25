@@ -60,9 +60,8 @@ def main(spark, netID=None):
     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))    
     ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
-    ratings_val.show() 
     ratings_val  = ratings_val.groupBy('userId').agg(collect_list('movieId'))
-    print('ground truth rankings by user from validation set:')
+    print('\nground truth rankings by user from validation set:')
     ratings_val.show()
      
 
@@ -74,8 +73,6 @@ def main(spark, netID=None):
     #evaluate baseline rankings on validation set with rankingMetrics
     eval_metrics = RankingMetrics(pred_and_labels_rdd)
     print('mean average precision: ', eval_metrics.meanAveragePrecision)
-
-
     
     
 # Only enter this block if we're in main
