@@ -45,9 +45,9 @@ def main(spark, netID=None):
     #create ground truth rankings by user from validation set and test set
     windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     
-    ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))
-    ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
-    ratings_val = ratings_val.groupby('userId').agg(collect_list('movieId'))
+    # ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))
+    # ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
+    # ratings_val = ratings_val.groupby('userId').agg(collect_list('movieId'))
     
     ratings_test = ratings_test.withColumn('rating_count', F.row_number().over(windowval))
     ratings_test = ratings_test.filter(ratings_test.rating_count<=100)
@@ -61,9 +61,6 @@ def main(spark, netID=None):
     ranks = [50, 100]
     maxIters = [5, 10]
     
-    best_map_score = 0
-    best_regParam = 0
-    best_rank = 0
     for i in range(len(regParams)):
         for j in range(len(ranks)):
     
@@ -89,26 +86,31 @@ def main(spark, netID=None):
             
             # Using best params, evaluate on validation set
             preds_val = CV_als_fitted.bestModel.transform(ratings_val)
+            print('Predicted ratings on validation set ("predictions" column)')
             preds_val.show()
             
             # Get top 100 ordered predictions for each user
-            windowval = Window.partitionBy('userId').orderBy(F.col('prediction').desc())
-            preds_val = preds_val.withColumn('rating_count', F.row_number().over(windowval))
+            window_preds_val = Window.partitionBy('userId').orderBy(F.col('prediction').desc())
+            window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+            
+            # Get the true rank-ordered list of movieIds for each user
+            preds_val = preds_val.withColumn('rating_count', F.row_number().over(window_preds_val))
             preds_val = preds_val.filter(preds_val.rating_count<=100)
-            preds_val = preds_val.groupby('userId').agg(collect_list('movieId'))
+            preds_val = preds_val.groupby('userId').agg(collect_list('movieId')).alias('true_ranking')
             
+            # Get the predicted rank-ordered list of movieIds for each user
+            truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
+            truth_val = truth_val.filter(truth_val.rating_count<=100)
+            truth_val = truth_val.groupby('userId').agg(collect_list('movieId')).alias('pred_ranking')
             
+            # Join truth and predictions and evaluate
+            preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                                  .select(col('true_ranking'), col('pred_ranking'))\
+                                  .rdd
         
-            #val_pred_rdd = spark.sparkContext.parallelize(val_pred)
-            eval_metrics = RankingMetrics(val_pred)
+            eval_metrics = RankingMetrics(preds_truth)
             val_map = eval_metrics.meanAveragePrecision
-            val_map_scores[i, j] = eval_metrics.meanAveragePrecision
-            
-            if val_map > best_map_score:
-                best_map_score = val_map
-                best_regParam = regParams[i]
-                best_rank = ranks[j]
-    
+            print('Validation MAP after model tuning: ', val_map)
     
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams), round(t_complete-t_prep,3)))
