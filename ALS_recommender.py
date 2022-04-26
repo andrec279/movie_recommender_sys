@@ -15,7 +15,8 @@ from pyspark.ml.recommendation import ALS
 from pyspark.sql.functions import collect_list
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, udf
+from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 import numpy as np
@@ -36,7 +37,7 @@ def main(spark, netID=None):
         
     t0 = time.time()
     #load train, val, test data into DataFrames
-    schema = ' INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
+    schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
     ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true', schema=schema)
     ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true', schema=schema)
     ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true', schema=schema)
@@ -55,50 +56,40 @@ def main(spark, netID=None):
     ranks = [50, 100]
     maxIters = [5, 10]
     
-    for i in range(len(regParams)):
-        for j in range(len(ranks)):
+    als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
     
-            als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-                      maxIter=20, rank=ranks[j], regParam=regParams[i], coldStartStrategy='drop')
-            
-            param_grid = ParamGridBuilder()\
-                            .addGrid(als.maxIter, maxIters)\
-                            .addGrid(als.rank, ranks)\
-                            .addGrid(als.regParam, regParams)\
-                            .build()
-            
-            # Search parameter space for optimal maxIter, rank, and regularization parameter
-            # Here we use RMSE of predicting rating to tune hyperparameters, even though
-            # we evaluate the final predictions on the validation set using only movie rankings
-            evaluatorRMSE = RegressionEvaluator(metricName='rmse', labelCol='rating')
-            CV_als = CrossValidator(estimator=als, 
-                                    estimatorParamMaps=param_grid,
-                                    evaluator=evaluatorRMSE, 
-                                    numFolds=5)
-            CV_als_fitted = CV_als.fit(ratings_train)
-            
-            # Using best params, evaluate on validation set
-            preds_val = CV_als_fitted.bestModel.recommendForAllUsers(100)
-            print('Predicted ratings on validation set ("predictions" column)')
-            preds_val.show()
-            
-            # Get top 100 ordered predictions for each user
-            window_preds_val = Window.partitionBy('userId').orderBy(F.col('prediction').desc())
-            
-            # Get the true rank-ordered list of movieIds for each user, using the full dataset so all movies
-            # in the dataset are under consideration
-            preds_val = preds_val.withColumn('rating_count', F.row_number().over(window_preds_val))
-            preds_val = preds_val.filter(preds_val.rating_count<=100)
-            preds_val = preds_val.groupby('userId').agg(collect_list('movieId').alias('pred_ranking'))
-            
-            # Join truth and predictions and evaluate
-            preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
-                                  .select(col('true_ranking'), col('pred_ranking'))\
-                                  .rdd
-        
-            eval_metrics = RankingMetrics(preds_truth)
-            val_map = eval_metrics.meanAveragePrecision
-            print('Validation MAP after model tuning: ', val_map)
+    param_grid = ParamGridBuilder()\
+                    .addGrid(als.maxIter, maxIters)\
+                    .addGrid(als.rank, ranks)\
+                    .addGrid(als.regParam, regParams)\
+                    .build()
+    
+    # Search parameter space for optimal maxIter, rank, and regularization parameter
+    # Here we use RMSE of predicting rating to tune hyperparameters, even though
+    # we evaluate the final predictions on the validation set using only movie rankings
+    evaluatorRMSE = RegressionEvaluator(metricName='rmse', labelCol='rating')
+    CV_als = CrossValidator(estimator=als, 
+                            estimatorParamMaps=param_grid,
+                            evaluator=evaluatorRMSE, 
+                            numFolds=5)
+    CV_als_fitted = CV_als.fit(ratings_train)
+    
+    # Using best params, get top 100 recs from movies in training set and evaluate on validation set
+    preds_val = CV_als_fitted.bestModel.recommendForAllUsers(100)
+    
+    # each set of user recommendations is in format [[movieId1, rating_pred1], [movieId2, rating_pred2], ...]
+    # we can drop ratings and restructure to [movieId1, movieId2, ...]
+    take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
+    preds_val = preds_val.withColumn('recommendations', take_movieId('recommendations'))
+    
+    # Join truth and predictions and evaluate
+    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                          .select(col('true_ranking'), col('recommendations'))\
+                          .rdd
+
+    eval_metrics = RankingMetrics(preds_truth)
+    val_map = eval_metrics.meanAveragePrecision
+    print('Validation MAP after model tuning: ', val_map)
     
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams), round(t_complete-t_prep,3)))
