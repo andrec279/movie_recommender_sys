@@ -15,10 +15,9 @@ from pyspark.ml.recommendation import ALS
 from pyspark.sql.functions import collect_list
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.functions import row_number, lit, udf, col
-from pyspark.sql.types import ArrayType, IntegerType
+from pyspark.sql.functions import col
 from pyspark.ml.evaluation import RegressionEvaluator
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 import numpy as np
 import time
 
@@ -37,21 +36,16 @@ def main(spark, netID=None):
         
     t0 = time.time()
     #load train, val, test data into DataFrames
-    schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
+    schema = ' INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
     ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true', schema=schema)
     ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true', schema=schema)
     ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true', schema=schema)
     
-    #create ground truth rankings by user from validation set and test set
-    windowval = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-    
-    # ratings_val = ratings_val.withColumn('rating_count', F.row_number().over(windowval))
-    # ratings_val = ratings_val.filter(ratings_val.rating_count<=100)
-    # ratings_val = ratings_val.groupby('userId').agg(collect_list('movieId'))
-    
-    ratings_test = ratings_test.withColumn('rating_count', F.row_number().over(windowval))
-    ratings_test = ratings_test.filter(ratings_test.rating_count<=100)
-    ratings_test = ratings_test.groupby('userId').agg(collect_list('movieId'))
+    # Get the predicted rank-ordered list of movieIds for each user
+    window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
+    truth_val = truth_val.filter(truth_val.rating_count<=100)
+    truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
     t_prep = time.time()
     print('Data preparation time (.csv): ', round(t_prep-t0, 3), 'seconds')
@@ -66,7 +60,6 @@ def main(spark, netID=None):
     
             als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
                       maxIter=20, rank=ranks[j], regParam=regParams[i], coldStartStrategy='drop')
-            als_fitted = als.fit(ratings_train)
             
             param_grid = ParamGridBuilder()\
                             .addGrid(als.maxIter, maxIters)\
@@ -85,23 +78,18 @@ def main(spark, netID=None):
             CV_als_fitted = CV_als.fit(ratings_train)
             
             # Using best params, evaluate on validation set
-            preds_val = CV_als_fitted.bestModel.transform(ratings_val)
+            preds_val = CV_als_fitted.bestModel.recommendForAllUsers(100)
             print('Predicted ratings on validation set ("predictions" column)')
             preds_val.show()
             
             # Get top 100 ordered predictions for each user
             window_preds_val = Window.partitionBy('userId').orderBy(F.col('prediction').desc())
-            window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
             
-            # Get the true rank-ordered list of movieIds for each user
+            # Get the true rank-ordered list of movieIds for each user, using the full dataset so all movies
+            # in the dataset are under consideration
             preds_val = preds_val.withColumn('rating_count', F.row_number().over(window_preds_val))
             preds_val = preds_val.filter(preds_val.rating_count<=100)
-            preds_val = preds_val.groupby('userId').agg(collect_list('movieId')).alias('true_ranking')
-            
-            # Get the predicted rank-ordered list of movieIds for each user
-            truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
-            truth_val = truth_val.filter(truth_val.rating_count<=100)
-            truth_val = truth_val.groupby('userId').agg(collect_list('movieId')).alias('pred_ranking')
+            preds_val = preds_val.groupby('userId').agg(collect_list('movieId').alias('pred_ranking'))
             
             # Join truth and predictions and evaluate
             preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
@@ -122,6 +110,8 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
     local_source = True # For local testing
+    full_data = False
+    size = '-small' if full_data == False else ''
      
     if local_source == False:
         # Get user netID from the command line
