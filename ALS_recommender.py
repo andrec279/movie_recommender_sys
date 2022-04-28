@@ -38,9 +38,9 @@ def main(spark, netID=None):
     t0 = time.time()
     #load train, val, test data into DataFrames
     schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
-    ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true', schema=schema)
-    ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true', schema=schema)
-    ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true', schema=schema)
+    ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true', schema=schema)
+    ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true', schema=schema)
+    ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true', schema=schema)
     
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())

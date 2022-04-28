@@ -136,13 +136,13 @@ def main(spark, netID):
     cols = ['userId', 'movieId', 'rating', 'timestamp']
     
     if local_save == True:
-        ratings_train[cols].to_csv('ratings_train.csv')
-        ratings_val[cols].to_csv('ratings_val.csv')
-        ratings_test[cols].to_csv('ratings_test.csv')
+        ratings_train[cols].to_csv('ratings_train{}.csv'.format(size))
+        ratings_val[cols].to_csv('ratings_val{}.csv'.format(size))
+        ratings_test[cols].to_csv('ratings_test{}.csv'.format(size))
         
-        print('\nTrain/Validation/Split files written successfully to local Peel user folder')
+        print('\nTrain/Validation/Split files written successfully to local folder')
         print('\nTest output for ratings_train:')
-        print(pd.read_csv('ratings_train.csv').head(10))
+        print(pd.read_csv('ratings_train{size}.csv').head(10))
     
     else:
     
@@ -150,13 +150,13 @@ def main(spark, netID):
         ratings_val = spark.createDataFrame(ratings_val[cols])
         ratings_test = spark.createDataFrame(ratings_test[cols])
         
-        ratings_train.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_train.csv')
-        ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val.csv')
-        ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test.csv')
+        ratings_train.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_train{size}.csv')
+        ratings_val.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_val{size}.csv')
+        ratings_test.write.mode('overwrite').option("header",True).csv(f'hdfs:/user/{netID}/ratings_test{size}.csv')
     
         print('\nTrain/Validation/Split files written successfully to HDFS')
         print('\nTest output for ratings_train:')
-        print(spark.read.csv(f'hdfs:/user/{netID}/ratings_train.csv', header='true').show(10))
+        print(spark.read.csv(f'hdfs:/user/{netID}/ratings_train{size}.csv', header='true').show(10))
     
 
 # Only enter this block if we're in main
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
 
-    local_save = True # Set = True for debugging on local machine
+    local_save = False # Set = True for debugging on local machine
     
     if local_save == False:
         # Get user netID from the command line
