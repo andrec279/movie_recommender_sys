@@ -16,9 +16,6 @@ from pyspark.sql import SparkSession
 
 def main(spark, netID):
 
-    full_data = False
-    size = '-small' if full_data==False else ''
-
     if local_save==True:
         path = 'ml-latest{}/'.format(size)
     else:
@@ -142,7 +139,7 @@ def main(spark, netID):
         
         print('\nTrain/Validation/Split files written successfully to local folder')
         print('\nTest output for ratings_train:')
-        print(pd.read_csv('ratings_train{size}.csv').head(10))
+        print(pd.read_csv(f'ratings_train{size}.csv').head(10))
     
     else:
     
@@ -165,6 +162,9 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName('part1').getOrCreate()
 
     local_save = False # Set = True for debugging on local machine
+    
+    full_data = True
+    size = '-small' if full_data==False else ''
     
     if local_save == False:
         # Get user netID from the command line

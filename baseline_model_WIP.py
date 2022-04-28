@@ -53,7 +53,10 @@ def main(spark, netID=None):
     ratings_test = ratings_test.groupby('userId').agg(collect_list('movieId'))
     
     #sort ratings_train df by movie rating score with various damping factors
-    damping_factors = [1, 5, 10, 50, 100]
+    if full_data == True:
+        damping_factors = [100]
+    else:
+        damping_factors = [1, 5, 10, 50, 100]
     map_results = np.empty(len(damping_factors))
     for i in range(len(damping_factors)):
         ratings_train_iter = ratings_train.groupBy('movieId').agg(F.sum('rating').alias('rating_sum'), F.count('rating').alias('rating_count'))
@@ -88,7 +91,9 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
     local_source = False # For local testing
-    size = '-small'
+    full_data = True
+    
+    size = '-small' if full_data == False else ''
     
     print('NOTE: Local mode set to {} and size is set to {}'.format(local_source, size))
      
