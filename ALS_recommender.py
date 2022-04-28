@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = True # For local testing
+    local_source = False # For local testing
     full_data = False
     size = '-small' if full_data == False else ''
      
