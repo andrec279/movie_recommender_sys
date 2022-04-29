@@ -126,7 +126,7 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
     local_source = False # For local testing
-    full_data = False
+    full_data = True
     size = '-small' if full_data == False else ''
      
     if local_source == False:
