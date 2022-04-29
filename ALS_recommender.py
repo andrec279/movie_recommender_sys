@@ -38,14 +38,13 @@ def main(spark, netID=None):
         
     t0 = time.time()
    
-    ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true')
-    ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true')
-    ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true')
+    ratings_train = spark.read.parquet(path_to_file + f'ratings_train{size}.parquet', header='true')
+    ratings_val = spark.read.parquet(path_to_file + f'ratings_val{size}.parquet', header='true')
+    ratings_test = spark.read.parquet(path_to_file + f'ratings_test{size}.parquet', header='true')
     
     ratings_train = ratings_train.drop('timestamp')
     ratings_val = ratings_val.drop('timestamp')
     ratings_test = ratings_test.drop('timestamp')
-
 
     #cast movieId and userId to ints and rating to float
     ratings_train = ratings_train.withColumn('movieId', ratings_train['movieId'].cast('integer'))
@@ -65,11 +64,6 @@ def main(spark, netID=None):
     ratings_train.printSchema()
     ratings_train.summary().show()
     ratings_train.show()
-    
-    print('show NULLS')
-    ratings_train.filter(ratings_train['userId'].isNull()).show()
-    ratings_train.filter(ratings_train['movieId'].isNull()).show()
-    ratings_train.filter(ratings_train['rating'].isNull()).show()
 
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
