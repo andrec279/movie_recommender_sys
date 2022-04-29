@@ -37,12 +37,6 @@ def main(spark, netID=None):
         path_to_file = ''
         
     t0 = time.time()
-    #load train, val, test data into DataFrames
-    
-    #schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
-    #ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true', schema=schema)
-    #ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true', schema=schema)
-    #ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true', schema=schema)
    
     ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true')
     ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true')
@@ -52,11 +46,6 @@ def main(spark, netID=None):
     ratings_val = ratings_val.drop('timestamp')
     ratings_test = ratings_test.drop('timestamp')
 
-    #ratings_train.createOrReplaceTempView('ratings_train')
-    #ratings_val.createOrReplaceTempView('ratings_val')
-    #ratings_test.createOrReplaceTempView('ratings_test')
-    
-    #ratings_train.where(col('movieId').isNull()).show()
 
     #cast movieId and userId to ints and rating to float
     ratings_train = ratings_train.withColumn('movieId', ratings_train['movieId'].cast('integer'))
@@ -73,9 +62,6 @@ def main(spark, netID=None):
 
     ratings_train = ratings_train.repartition(600, col('userId'))
 
-    #print('num partitions')
-    #print(ratings_train.rdd.getNumPartitions())
-
     ratings_train.printSchema()
     ratings_train.summary().show()
     ratings_train.show()
@@ -84,10 +70,6 @@ def main(spark, netID=None):
     ratings_train.filter(ratings_train['userId'].isNull()).show()
     ratings_train.filter(ratings_train['movieId'].isNull()).show()
     ratings_train.filter(ratings_train['rating'].isNull()).show()
-    
-    #print('userId info:) 
-
-
 
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
@@ -120,11 +102,6 @@ def main(spark, netID=None):
                             evaluator=evaluatorRMSE, 
                             numFolds=5)
 
-
-    #num_null = ratings_train.where(reduce(lambda x, y: x | y, (F.col(x).isNull() for x in ratings_train.columns))).count()
-    #print('Nulls :', num_null)
-    #print('Total :', ratings_train.count())
-
     CV_als_fitted = CV_als.fit(ratings_train)
     
     # Using best params, get top 100 recs from movies in training set and evaluate on validation set
@@ -147,8 +124,6 @@ def main(spark, netID=None):
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams), round(t_complete-t_prep,3)))
     print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
-   
-
 
  
 # Only enter this block if we're in main
