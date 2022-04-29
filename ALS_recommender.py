@@ -19,6 +19,7 @@ from pyspark.sql.functions import col, udf
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from functools import reduce
 import numpy as np
 import time
 
@@ -38,9 +39,26 @@ def main(spark, netID=None):
     t0 = time.time()
     #load train, val, test data into DataFrames
     schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
-    ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true', schema=schema)
-    ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true', schema=schema)
-    ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true', schema=schema)
+
+    ###
+    ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true', schema=schema)
+    #ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true')
+    ratings_train.printSchema()
+    ratings_train.show(5)
+
+    ratings_train.withColumn("length", F.length("movieId")).show(5)
+
+    '''
+    num_null = ratings_train.where(reduce(lambda x, y: x | y, (F.col(x).isNull() for x in ratings_train.columns))).count()
+    print('Nulls :', num_null)
+    print('Total :', ratings_train.count())
+ 
+    ratings_train.filter(F.col("movieId").cast("int").isNotNull()).show()
+    ratings_train.filter(F.col("timestamp").cast("int").isNotNull()).show()
+    '''
+    ###
+    ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true', schema=schema)
+    ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true', schema=schema)
     
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
@@ -72,6 +90,12 @@ def main(spark, netID=None):
                             estimatorParamMaps=param_grid,
                             evaluator=evaluatorRMSE, 
                             numFolds=5)
+
+
+    #num_null = ratings_train.where(reduce(lambda x, y: x | y, (F.col(x).isNull() for x in ratings_train.columns))).count()
+    #print('Nulls :', num_null)
+    #print('Total :', ratings_train.count())
+
     CV_als_fitted = CV_als.fit(ratings_train)
     
     # Using best params, get top 100 recs from movies in training set and evaluate on validation set
