@@ -38,28 +38,57 @@ def main(spark, netID=None):
         
     t0 = time.time()
     #load train, val, test data into DataFrames
-    schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
-
-    ###
-    ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true', schema=schema)
-    #ratings_train = spark.read.csv(path_to_file + 'ratings_train.csv', header='true')
-    ratings_train.printSchema()
-    ratings_train.show(5)
-
-    ratings_train.withColumn("length", F.length("movieId")).show(5)
-
-    '''
-    num_null = ratings_train.where(reduce(lambda x, y: x | y, (F.col(x).isNull() for x in ratings_train.columns))).count()
-    print('Nulls :', num_null)
-    print('Total :', ratings_train.count())
- 
-    ratings_train.filter(F.col("movieId").cast("int").isNotNull()).show()
-    ratings_train.filter(F.col("timestamp").cast("int").isNotNull()).show()
-    '''
-    ###
-    ratings_val = spark.read.csv(path_to_file + 'ratings_val.csv', header='true', schema=schema)
-    ratings_test = spark.read.csv(path_to_file + 'ratings_test.csv', header='true', schema=schema)
     
+    #schema = 'index INT, userId INT, movieId INT, rating FLOAT, timestamp INT'
+    #ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true', schema=schema)
+    #ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true', schema=schema)
+    #ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true', schema=schema)
+   
+    ratings_train = spark.read.csv(path_to_file + f'ratings_train{size}.csv', header='true')
+    ratings_val = spark.read.csv(path_to_file + f'ratings_val{size}.csv', header='true')
+    ratings_test = spark.read.csv(path_to_file + f'ratings_test{size}.csv', header='true')
+    
+    ratings_train = ratings_train.drop('timestamp')
+    ratings_val = ratings_val.drop('timestamp')
+    ratings_test = ratings_test.drop('timestamp')
+
+    #ratings_train.createOrReplaceTempView('ratings_train')
+    #ratings_val.createOrReplaceTempView('ratings_val')
+    #ratings_test.createOrReplaceTempView('ratings_test')
+    
+    #ratings_train.where(col('movieId').isNull()).show()
+
+    #cast movieId and userId to ints and rating to float
+    ratings_train = ratings_train.withColumn('movieId', ratings_train['movieId'].cast('integer'))
+    ratings_train = ratings_train.withColumn('userId', ratings_train['userId'].cast('integer'))
+    ratings_train = ratings_train.withColumn('rating', ratings_train['rating'].cast('float'))
+
+    ratings_val = ratings_val.withColumn('movieId', ratings_val['movieId'].cast('integer'))
+    ratings_val = ratings_val.withColumn('userId', ratings_val['userId'].cast('integer'))    
+    ratings_val = ratings_val.withColumn('rating', ratings_val['rating'].cast('float')) 
+
+    ratings_test = ratings_test.withColumn('movieId', ratings_test['movieId'].cast('integer'))
+    ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
+    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))   
+
+    ratings_train = ratings_train.repartition(600, col('userId'))
+
+    #print('num partitions')
+    #print(ratings_train.rdd.getNumPartitions())
+
+    ratings_train.printSchema()
+    ratings_train.summary().show()
+    ratings_train.show()
+    
+    print('show NULLS')
+    ratings_train.filter(ratings_train['userId'].isNull()).show()
+    ratings_train.filter(ratings_train['movieId'].isNull()).show()
+    ratings_train.filter(ratings_train['rating'].isNull()).show()
+    
+    #print('userId info:) 
+
+
+
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
@@ -118,7 +147,10 @@ def main(spark, netID=None):
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams), round(t_complete-t_prep,3)))
     print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
-    
+   
+
+
+ 
 # Only enter this block if we're in main
 if __name__ == "__main__":
     # Create the spark session object
