@@ -23,7 +23,7 @@ def main(spark, netID):
     if local_save==True:
         path = 'ml-latest{}/'.format(size)
     else:
-        path = '/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/'.format(size)
+        path = 'hdfs:/scratch/work/courses/DSGA1004-2021/movielens/ml-latest{}/'.format(size)
 
     files = {'ratings': path + 'ratings.csv',
              'movies': path + 'movies.csv',
