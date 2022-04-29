@@ -115,7 +115,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
 
-    local_save = True # Set = True for debugging on local machine
+    local_save = False # Set = True for debugging on local machine
     
     full_data = True
     size = '-small' if full_data==False else ''
