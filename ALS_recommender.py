@@ -72,8 +72,8 @@ def main(spark, netID=None):
     
     # Fit ALS model
     regParams = [5e-3, 7e-3]
-    ranks = [50, 100, 150, 200]
-    maxIters = [10, 15, 20]
+    ranks = [100, 150]
+    maxIters = [10, 15]
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
     
