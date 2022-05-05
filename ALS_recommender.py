@@ -59,11 +59,7 @@ def main(spark, netID=None):
     ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
     ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))   
 
-    ratings_train = ratings_train.repartition(600, col('userId'))
-
-    ratings_train.printSchema()
-    ratings_train.summary().show()
-    ratings_train.show()
+    ratings_train = ratings_train.repartition(20, col('userId'))
 
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
@@ -76,8 +72,8 @@ def main(spark, netID=None):
     
     # Fit ALS model
     regParams = [5e-3, 7e-3]
-    ranks = [50, 100]
-    maxIters = [5, 10]
+    ranks = [50, 100, 150, 200]
+    maxIters = [10, 15, 20]
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
     
@@ -98,6 +94,11 @@ def main(spark, netID=None):
 
     CV_als_fitted = CV_als.fit(ratings_train)
     
+    # Print best parameters
+    print('Best regParam: ', CV_als_fitted.bestModel._java_obj.getRegParam())
+    print('Best MaxIter: ', CV_als_fitted.bestModel._java_obj.getMaxIter())
+    print('Best Rank: ', CV_als_fitted.bestMode._java_obj.getRank())
+    
     # Using best params, get top 100 recs from movies in training set and evaluate on validation set
     preds_val = CV_als_fitted.bestModel.recommendForAllUsers(100)
     
@@ -116,7 +117,7 @@ def main(spark, netID=None):
     print('Validation MAP after model tuning: ', val_map)
     
     t_complete = time.time()
-    print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams), round(t_complete-t_prep,3)))
+    print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams)*len(maxIters), round(t_complete-t_prep,3)))
     print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
 
  
@@ -126,7 +127,7 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
     local_source = False # For local testing
-    full_data = True
+    full_data = False
     size = '-small' if full_data == False else ''
      
     if local_source == False:
