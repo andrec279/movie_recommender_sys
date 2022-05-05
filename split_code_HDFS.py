@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
     local_save = False # Set = True for debugging on local machine
     
-    full_data = False
+    full_data = True
     size = '-small' if full_data==False else ''
     
     if local_save == False:
