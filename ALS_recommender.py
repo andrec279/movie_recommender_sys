@@ -59,7 +59,7 @@ def main(spark, netID=None):
     ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
     ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))   
 
-    ratings_train = ratings_train.repartition(20, col('userId'))
+    ratings_train = ratings_train.repartition(600, col('userId'))
 
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
