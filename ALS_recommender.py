@@ -72,7 +72,7 @@ def main(spark, netID=None):
     
     # Fit ALS model
     regParams = [5e-3, 7e-3]
-    ranks = [100, 150]
+    ranks = [100, 150, 200]
     maxIters = [10, 15]
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
@@ -95,9 +95,6 @@ def main(spark, netID=None):
     CV_als_fitted = CV_als.fit(ratings_train)
     
     # Print best parameters
-    print('Best regParam: ', CV_als_fitted.bestModel._java_obj.getRegParam())
-    print('Best MaxIter: ', CV_als_fitted.bestModel._java_obj.getMaxIter())
-    print('Best Rank: ', CV_als_fitted.bestMode._java_obj.getRank())
     
     # Using best params, get top 100 recs from movies in training set and evaluate on validation set
     preds_val = CV_als_fitted.bestModel.recommendForAllUsers(100)
