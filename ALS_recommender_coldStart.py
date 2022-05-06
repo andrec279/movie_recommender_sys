@@ -19,6 +19,8 @@ from pyspark.sql.functions import col, udf
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import LinearRegression
 from functools import reduce
 import numpy as np
 import time
@@ -58,10 +60,7 @@ def main(spark, netID=None):
 
     ratings_test = ratings_test.withColumn('movieId', ratings_test['movieId'].cast('integer'))
     ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
-    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))   
-
-    ratings_train = ratings_train.repartition(6, col('movieId'))
-    
+    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))
 
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
@@ -72,43 +71,58 @@ def main(spark, netID=None):
     t_prep = time.time()
     print('Data preparation time (.parquet): ', round(t_prep-t0, 3), 'seconds')
     
-    # Replace with best hyperparameters later
-    regParams = [7e-3]
-    ranks = [100]
-    maxIters = [15]
-    
-    als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
-    
-    param_grid = ParamGridBuilder()\
-                    .addGrid(als.maxIter, maxIters)\
-                    .addGrid(als.rank, ranks)\
-                    .addGrid(als.regParam, regParams)\
-                    .build()
-    
-    # Search parameter space for optimal maxIter, rank, and regularization parameter
-    # Here we use RMSE of predicting rating to tune hyperparameters, even though
-    # we evaluate the final predictions on the validation set using only movie rankings
-    evaluatorRMSE = RegressionEvaluator(metricName='rmse', labelCol='rating')
-    CV_als = CrossValidator(estimator=als, 
-                            estimatorParamMaps=param_grid,
-                            evaluator=evaluatorRMSE, 
-                            numFolds=5)
+    als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
+              coldStartStrategy='drop', rank=10, maxIter=5, regParam=0.005)
 
-    CV_als_fitted = CV_als.fit(ratings_train)
-    
-    # Print best parameters
-    als_model = CV_als_fitted.bestModel
+    als_model = als.fit(ratings_train)
     
     # Get user and item factors
-    
     user_factors = als_model.userFactors
     item_factors = als_model.itemFactors
     
     tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
-    item_factors_features = item_factors.join(tag_genome, item_factors.id==tag_genome.movieId)
-    print((item_factors_features.count(), len(item_factors_features.columns)))
+    item_factors_features = item_factors.join(tag_genome, item_factors.id==tag_genome.movieId)\
+                                        .drop('id')\
+                                        .withColumnRenamed('features', 'target')
     
-    'TO-DO: evaluation section of content cold start model'
+    # For spark models, need to vectorize feature columns into one column
+    vectorAssembler = VectorAssembler(inputCols = list(range(1, 1129)), outputCol = 'features')
+    item_factors_features_v = vectorAssembler.transform(item_factors_features)
+    item_factors_features_v.show(3)
+    
+    splits = item_factors_features_v.randomSplit([0.7, 0.3])
+    train_features = splits[0]
+    val_features = splits[1]
+    
+    # Train model
+    maxIters = [5, 10, 15]
+    regParams = [1e-4, 1e-3, 1e-2, 1e-1]
+    lr = LinearRegression(featuresCol = 'features', labelCol='target')
+    param_grid = ParamGridBuilder()\
+                    .addGrid(als.maxIter, maxIters)\
+                    .addGrid(als.regParam, regParams)\
+                    .build()
+    evaluatorRMSE = RegressionEvaluator(metricName='rmse', labelCol='rating', predictionCol='prediction')
+
+    CV_lr = CrossValidator(estimator=lr,
+                           estimatorParamMaps=param_grid,
+                           evaluator=evaluatorRMSE,
+                           numFolds=5)
+    
+    CV_lr_fitted = CV_lr.fit(train_features)
+    lr_best = CV_lr_fitted.bestModel
+    trainingSummary = lr_best.summary
+    print('Training RMSE: {}'.format(trainingSummary.rootMeanSquaredError))
+    print('Training R^2: {}'.format(trainingSummary.r2))
+    
+    val_feature_pred = lr_best.transform(val_features)
+    evaluatorR2 = RegressionEvaluator(predictionCol='prediction', labelCol='target', metricName='r2')
+    
+    print('Validation RMSE: {}'.format(evaluatorRMSE.evaluate(val_feature_pred)))
+    print('Validation R^2: {}'.format(evaluatorR2.evaluate(val_feature_pred)))
+    
+    
+    'TO-DO: evaluation section of full content cold start model'
     
     # # each set of user recommendations is in format [[movieId1, rating_pred1], [movieId2, rating_pred2], ...]
     # # we can drop ratings and restructure to [movieId1, movieId2, ...]
@@ -134,7 +148,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = True # For local testing
+    local_source = False # For local testing
     full_data = False
     size = '-small' if full_data == False else ''
      
