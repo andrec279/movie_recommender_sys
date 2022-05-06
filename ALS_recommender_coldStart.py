@@ -86,7 +86,7 @@ def main(spark, netID=None):
                                         .withColumnRenamed('features', 'target')
     
     # For spark models, need to vectorize feature columns into one column
-    vectorAssembler = VectorAssembler(inputCols = list(range(1, 1129)), outputCol = 'features')
+    vectorAssembler = VectorAssembler(inputCols = [str(i) for i in range(1, 1129)], outputCol = 'features')
     item_factors_features_v = vectorAssembler.transform(item_factors_features)
     item_factors_features_v.show(3)
     
