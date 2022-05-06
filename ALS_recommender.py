@@ -72,7 +72,7 @@ def main(spark, netID=None):
     
     # Fit ALS model
     regParams = [5e-3, 7e-3]
-    ranks = [100, 150, 200]
+    ranks = [150, 200]
     maxIters = [15, 20]
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', coldStartStrategy='drop')
@@ -91,7 +91,7 @@ def main(spark, netID=None):
                             estimatorParamMaps=param_grid,
                             evaluator=evaluatorRMSE, 
                             numFolds=5,
-                            parallelism=20)
+                            parallelism=10)
 
     CV_als_fitted = CV_als.fit(ratings_train)
     
