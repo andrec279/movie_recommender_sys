@@ -11,19 +11,8 @@ import getpass
 
 # And pyspark.sql to get the spark session
 from pyspark.sql import SparkSession
-from pyspark.mllib.evaluation import RankingMetrics
-from pyspark.ml.recommendation import ALS
-from pyspark.sql.functions import collect_list
-from pyspark.sql import Window
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, udf
-from pyspark.sql.types import IntegerType, ArrayType
-from pyspark.ml.evaluation import RegressionEvaluator
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from functools import reduce
-import numpy as np
-import time
-import random
+from pyspark.sql.functions import col
+
 
 def main(spark, netID=None):
     '''Main routine for Lab Solutions
@@ -41,8 +30,8 @@ def main(spark, netID=None):
     schema = 'movieId INT, tagId INT, relevance FLOAT'
     tag_genome = spark.read.csv(filepath + 'genome-scores.csv', schema=schema)
     tag_genome_pivot = tag_genome.groupBy('movieId').pivot('tagId').sum('relevance').drop(col('null'))
-    
-    tag_genome_pivot.write.mode('overwrite').option('header', True).parquet(filepath + f'tag_genome_pivot.parquet')
+    print(tag_genome_pivot.count())
+    tag_genome_pivot.write.mode('overwrite').option('header', True).parquet(filepath + 'tag_genome_pivot.parquet')
 
     print('\nFiles written successfully to {}'.format('local folder' if local_source == True else filepath))
 
