@@ -32,9 +32,9 @@ def main(spark, netID=None):
         path_to_file = ''
         
     #load train, val, test data into DataFrames
-    ratings_train = spark.read.csv(path_to_file + 'ratings_train{}.csv'.format(size), header='true')
-    ratings_val = spark.read.csv(path_to_file + 'ratings_val{}.csv'.format(size), header='true')
-    ratings_test = spark.read.csv(path_to_file + 'ratings_test{}.csv'.format(size), header='true')
+    ratings_train = spark.read.parquet(path_to_file + 'ratings_train{}.parquet'.format(size), header='true')
+    ratings_val = spark.read.parquet(path_to_file + 'ratings_val{}.parquet'.format(size), header='true')
+    ratings_test = spark.read.parquet(path_to_file + 'ratings_test{}.parquet'.format(size), header='true')
     
     ratings_train.createOrReplaceTempView('ratings_train')
     ratings_val.createOrReplaceTempView('ratings_val')
@@ -90,8 +90,8 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = False # For local testing
-    full_data = True
+    local_source = True # For local testing
+    full_data = False
     
     size = '-small' if full_data == False else ''
     
