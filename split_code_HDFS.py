@@ -52,7 +52,7 @@ def main(spark, netID):
     
 
     '''SPLITTING SECTION'''
-    # 60/20/20 Train/Val/Test Split on individual user basis using df.groupby.sample()
+    # 60/20/20 Train/Val/Test Split on individual user basis
     print('Splitting into train / val /test...')
     
     # Get 40% earliest interactions and 20% latest interactions per user for training set
@@ -146,9 +146,9 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
 
-    local_save = False # Set = True for debugging on local machine
+    local_save = True # Set = True for debugging on local machine
     
-    full_data = True
+    full_data = False
     size = '-small' if full_data==False else ''
     
     if local_save == False:
