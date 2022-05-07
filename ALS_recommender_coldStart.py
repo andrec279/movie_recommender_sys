@@ -19,28 +19,20 @@ from pyspark.sql.functions import col, udf
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.regression import LinearRegression
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
+
 from functools import reduce
 import numpy as np
 import time
 import random
+import matplotlib.pyplot as plt
 
-def main(spark, netID=None):
-    '''Main routine for Lab Solutions
-    Parameters
-    ----------
-    spark : SparkSession object
-    netID : string, netID of student to find files in HDFS
-    '''
+def load_and_prep_ratings(path_to_file, spark, netID=None):
     
-    if local_source == False:
-        path_to_file = f'hdfs:/user/{netID}/'
-    else:
-        path_to_file = ''
-        
-    t0 = time.time()
-    schema = 'userId INT, movieId INT, rating FLOAT, timestamp INT'
     ratings_train = spark.read.parquet(path_to_file + f'ratings_train{size}.parquet', header='true')
     ratings_val = spark.read.parquet(path_to_file + f'ratings_val{size}.parquet', header='true')
     ratings_test = spark.read.parquet(path_to_file + f'ratings_test{size}.parquet', header='true')
@@ -61,68 +53,108 @@ def main(spark, netID=None):
     ratings_test = ratings_test.withColumn('movieId', ratings_test['movieId'].cast('integer'))
     ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
     ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))
+    
+    return ratings_train, ratings_val, ratings_test
 
+def fit_eval_ALS(spark, ratings_train, ratings_val):
+    
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
     truth_val = truth_val.filter(truth_val.rating_count<=100)
     truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
-    t_prep = time.time()
-    print('Data preparation time (.parquet): ', round(t_prep-t0, 3), 'seconds')
-    
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-              coldStartStrategy='drop', rank=10, maxIter=5, regParam=0.005)
+              coldStartStrategy='drop', rank=200, maxIter=10, regParam=0.005)
 
     als_model = als.fit(ratings_train)
+    
+    preds_val = als_model.recommendForAllUsers(100)
+    take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
+    preds_val = preds_val.withColumn('recommendations', take_movieId('recommendations'))
+    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                          .select(col('true_ranking'), col('recommendations'))\
+                          .rdd
+    
+    eval_metrics = RankingMetrics(preds_truth)
+    val_map = eval_metrics.meanAveragePrecision
+    
+    return als_model, val_map
+
+def fit_content_regression(spark, user_factors, item_factors, item_features, alphas):
+    item_factors_features = item_factors.join(item_features, item_factors.id==item_features.movieId)\
+                                        .drop('id')\
+                                        .withColumnRenamed('features', 'target')\
+    
+    splits = item_factors_features.randomSplit([0.7, 0.3])
+    train_features_data = splits[0]
+    val_features_data = splits[1]
+    X_ind = [str(i) for i in range(1,1129)]
+    
+    y_train = np.array(train_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
+    X_train = np.array(train_features_data.select(X_ind).collect())
+    
+    y_val = np.array(val_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
+    X_val = np.array(val_features_data.select(X_ind).collect())
+    
+    val_rmses = np.empty(len(alphas))
+    train_rmses = np.empty(len(alphas))
+    regressors = []
+    
+    print('Tuning regressor...')
+    for i in range(len(alphas)):
+        multi_regressor = MultiOutputRegressor(Ridge(alpha=alphas[i]))
+        multi_regressor.fit(X_train, y_train)
+        val_rmses[i] = mean_squared_error(y_val, multi_regressor.predict(X_val))
+        train_rmses[i] = mean_squared_error(y_train, multi_regressor.predict(X_train))
+        regressors.append(multi_regressor)
+    print('Tuning done')
+    
+    best_rmse = np.min(val_rmses)
+    best_alpha = alphas[np.argmin(val_rmses)]
+    best_regressor = regressors[np.argmin(val_rmses)]
+    
+    print('Best alpha: ', best_alpha)
+    print('Training RMSE: ', mean_squared_error(y_train, best_regressor.predict(X_train)))
+    print('Training R2: ', r2_score(y_train, best_regressor.predict(X_train)))
+    print('\n')
+    print('Validation RMSE: ', best_rmse)
+    print('Validation R2: ', r2_score(y_val, best_regressor.predict(X_val)))
+    
+    return best_regressor
+    
+def main(spark, netID=None):
+    '''Main routine for Lab Solutions
+    Parameters
+    ----------
+    spark : SparkSession object
+    netID : string, netID of student to find files in HDFS
+    '''
+       
+    t0 = time.time()
+    
+    if local_source == False:
+        path_to_file = f'hdfs:/user/{netID}/'
+    else:
+        path_to_file = ''
+    
+    ratings_train, ratings_val, ratings_test = load_and_prep_ratings(path_to_file, spark, netID)
+    
+    
+    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, ratings_val)
     
     # Get user and item factors
     user_factors = als_model.userFactors
     item_factors = als_model.itemFactors
-    
     tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
-    item_factors_features = item_factors.join(tag_genome, item_factors.id==tag_genome.movieId)\
-                                        .drop('id')\
-                                        .withColumnRenamed('features', 'target')
     
-    # For spark models, need to vectorize feature columns into one column
-    vectorAssembler = VectorAssembler(inputCols = [str(i) for i in range(1, 1129)], outputCol = 'features')
-    item_factors_features_v = vectorAssembler.transform(item_factors_features)
-    item_factors_features_v.show(3)
-    
-    splits = item_factors_features_v.randomSplit([0.7, 0.3])
-    train_features = splits[0]
-    val_features = splits[1]
-    
-    # Train model
-    maxIters = [5, 10, 15]
-    regParams = [1e-4, 1e-3, 1e-2, 1e-1]
-    lr = LinearRegression(featuresCol = 'features', labelCol='target')
-    param_grid = ParamGridBuilder()\
-                    .addGrid(als.maxIter, maxIters)\
-                    .addGrid(als.regParam, regParams)\
-                    .build()
-    evaluatorRMSE = RegressionEvaluator(metricName='rmse', labelCol='rating', predictionCol='prediction')
-
-    CV_lr = CrossValidator(estimator=lr,
-                           estimatorParamMaps=param_grid,
-                           evaluator=evaluatorRMSE,
-                           numFolds=5)
-    
-    CV_lr_fitted = CV_lr.fit(train_features)
-    lr_best = CV_lr_fitted.bestModel
-    trainingSummary = lr_best.summary
-    print('Training RMSE: {}'.format(trainingSummary.rootMeanSquaredError))
-    print('Training R^2: {}'.format(trainingSummary.r2))
-    
-    val_feature_pred = lr_best.transform(val_features)
-    evaluatorR2 = RegressionEvaluator(predictionCol='prediction', labelCol='target', metricName='r2')
-    
-    print('Validation RMSE: {}'.format(evaluatorRMSE.evaluate(val_feature_pred)))
-    print('Validation R^2: {}'.format(evaluatorR2.evaluate(val_feature_pred)))
-    
+    alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
+    content_regressor = fit_content_regression(spark, user_factors, item_factors, tag_genome, alphas)
+                                            
     
     'TO-DO: evaluation section of full content cold start model'
+    
+    
     
     # # each set of user recommendations is in format [[movieId1, rating_pred1], [movieId2, rating_pred2], ...]
     # # we can drop ratings and restructure to [movieId1, movieId2, ...]
@@ -148,7 +180,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = False # For local testing
+    local_source = True # For local testing
     full_data = False
     size = '-small' if full_data == False else ''
      

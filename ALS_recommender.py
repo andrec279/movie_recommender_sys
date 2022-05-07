@@ -24,21 +24,9 @@ import numpy as np
 import time
 import sys
 
-def main(spark, netID=None):
-    '''Main routine for Lab Solutions
-    Parameters
-    ----------
-    spark : SparkSession object
-    netID : string, netID of student to find files in HDFS
-    '''
+
+def load_and_prep_ratings(path_to_file, spark, netID=None):
     
-    if local_source == False:
-        path_to_file = f'hdfs:/user/{netID}/'
-    else:
-        path_to_file = ''
-        
-    t0 = time.time()
-   
     ratings_train = spark.read.parquet(path_to_file + f'ratings_train{size}.parquet', header='true')
     ratings_val = spark.read.parquet(path_to_file + f'ratings_val{size}.parquet', header='true')
     ratings_test = spark.read.parquet(path_to_file + f'ratings_test{size}.parquet', header='true')
@@ -58,23 +46,21 @@ def main(spark, netID=None):
 
     ratings_test = ratings_test.withColumn('movieId', ratings_test['movieId'].cast('integer'))
     ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
-    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))   
+    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))
+    
+    return ratings_train, ratings_val, ratings_test
 
-    #ratings_train = ratings_train.repartition(600, col('userId'))
-
+def fit_eval_ALS(spark, ratings_train, ratings_val, params):
+    
     # Get the predicted rank-ordered list of movieIds for each user
     window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
     truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
     truth_val = truth_val.filter(truth_val.rating_count<=100)
     truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
-    t_prep = time.time()
-    print('Data preparation time (.csv): ', round(t_prep-t0, 3), 'seconds')
-    
-    # Fit ALS model
-    regParams = np.array([1e-5, 1e-4, 1e-3, 1e-2])
-    ranks = np.array([150, 200])
-    maxIters = np.array([5, 10])
+    regParams = params['regParams']
+    ranks = params['ranks']
+    maxIters = params['maxIters']
     
     param_scores = {}
     models = []
@@ -83,9 +69,6 @@ def main(spark, netID=None):
     best_rank = 0
     best_maxIter = 0
     best_model_index = 0
-    
-    # Here we use RMSE of predicting rating to tune hyperparameters, even though
-    # we evaluate the final predictions on the validation set using only movie rankings
     
     model_index=0
     for regParam in regParams:
@@ -133,7 +116,37 @@ def main(spark, netID=None):
     print('Best rank: ', best_rank)
     print('Best maxIter: ', best_maxIter)
     print('Best MAP on validation set: ', best_val_map)
+    
+    return best_model
 
+def main(spark, netID=None):
+    '''Main routine for Lab Solutions
+    Parameters
+    ----------
+    spark : SparkSession object
+    netID : string, netID of student to find files in HDFS
+    '''
+    
+    t0 = time.time()
+    
+    if local_source == False:
+        path_to_file = f'hdfs:/user/{netID}/'
+    else:
+        path_to_file = ''    
+     
+    ratings_train, ratings_val, ratings_test = load_and_prep_ratings(path_to_file, spark, netID)
+    
+    t_prep = time.time()
+    print('Data preparation time (.csv): ', round(t_prep-t0, 3), 'seconds')
+
+    # Fit ALS model
+    regParams = np.array([1e-2])
+    ranks = np.array([150, 200, 500, 1000])
+    maxIters = np.array([5, 10])
+    
+    params = {'regParams': regParams, 'ranks': ranks, 'maxIters': maxIters}
+    
+    als_model = fit_eval_ALS(spark, ratings_train, ratings_val, params)
     
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams)*len(maxIters), round(t_complete-t_prep,3)))
@@ -145,7 +158,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = False # For local testing
+    local_source = True # For local testing
     full_data = False
     size = '-small' if full_data == False else ''
      
