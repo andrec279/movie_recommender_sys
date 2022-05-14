@@ -49,8 +49,6 @@ def main(spark, netID):
         rs = random.Random()
         return rs.sample(list(iter), n)  
     
-    
-
     '''SPLITTING SECTION'''
     # 60/20/20 Train/Val/Test Split on individual user basis
     print('Splitting into train / val /test...')
