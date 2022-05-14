@@ -15,7 +15,7 @@ from pyspark.ml.recommendation import ALS
 from pyspark.sql.functions import collect_list
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.functions import col, udf
+from pyspark.sql.functions import col, udf, row_number, monotonically_increasing_id
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
@@ -56,13 +56,19 @@ def load_and_prep_ratings(path_to_file, spark, netID=None):
     
     return ratings_train, ratings_val, ratings_test
 
-def fit_eval_ALS(spark, ratings_train, ratings_val):
+def eval_ALS(truth_val, preds_val):
+    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                          .select(col('true_ranking'), col('recommendations'))\
+                          .rdd
+                          
+    print('preds_truth rows:', preds_truth.count())
     
-    # Get the predicted rank-ordered list of movieIds for each user
-    window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
-    truth_val = truth_val.filter(truth_val.rating_count<=100)
-    truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
+    eval_metrics = RankingMetrics(preds_truth)
+    mean_avg_precision = eval_metrics.meanAveragePrecision
+    
+    return mean_avg_precision
+
+def fit_eval_ALS(spark, ratings_train, truth_val):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
               coldStartStrategy='drop', rank=200, maxIter=10, regParam=0.005)
@@ -72,33 +78,36 @@ def fit_eval_ALS(spark, ratings_train, ratings_val):
     preds_val = als_model.recommendForAllUsers(100)
     take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
     preds_val = preds_val.withColumn('recommendations', take_movieId('recommendations'))
-    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
-                          .select(col('true_ranking'), col('recommendations'))\
-                          .rdd
     
-    eval_metrics = RankingMetrics(preds_truth)
-    val_map = eval_metrics.meanAveragePrecision
+    val_map = eval_ALS(truth_val, preds_val)
     
     return als_model, val_map
 
-def fit_content_regression(spark, user_factors, item_factors, item_features, alphas):
-    item_factors_features = item_factors.join(item_features, item_factors.id==item_features.movieId)\
-                                        .drop('id')\
-                                        .withColumnRenamed('features', 'target')\
+def content_regression(spark, item_factors_features, alphas):
     
-    splits = item_factors_features.randomSplit([0.7, 0.3])
-    train_features_data = splits[0]
-    val_features_data = splits[1]
+    splits = item_factors_features.randomSplit([0.6, 0.3, 0.1])
+    train_features_data = splits[0].persist()
+    val_features_data = splits[1].persist()
+    test_features_data = splits[2].persist()
     X_ind = [str(i) for i in range(1,1129)]
     
     y_train = np.array(train_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
     X_train = np.array(train_features_data.select(X_ind).collect())
+    movieIds_train = np.array(train_features_data.select('movieId').collect())
     
     y_val = np.array(val_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
     X_val = np.array(val_features_data.select(X_ind).collect())
+    movieIds_val = np.array(val_features_data.select('movieId').collect())
+    
+    X_test = np.array(test_features_data.select(X_ind).collect())
+    movieIds_test = np.array(test_features_data.select('movieId').collect())
     
     val_rmses = np.empty(len(alphas))
     train_rmses = np.empty(len(alphas))
+    
+    val_r2 = np.empty(len(alphas))
+    train_r2 = np.empty(len(alphas))
+    
     regressors = []
     
     print('Tuning regressor...')
@@ -107,8 +116,12 @@ def fit_content_regression(spark, user_factors, item_factors, item_features, alp
         multi_regressor.fit(X_train, y_train)
         val_rmses[i] = mean_squared_error(y_val, multi_regressor.predict(X_val))
         train_rmses[i] = mean_squared_error(y_train, multi_regressor.predict(X_train))
+        
+        val_r2[i] = r2_score(y_val, multi_regressor.predict(X_val))
+        train_r2[i] = r2_score(y_train, multi_regressor.predict(X_train))
+        
         regressors.append(multi_regressor)
-    print('Tuning done')
+    print('Tuning done\n\n')
     
     best_rmse = np.min(val_rmses)
     best_alpha = alphas[np.argmin(val_rmses)]
@@ -121,8 +134,34 @@ def fit_content_regression(spark, user_factors, item_factors, item_features, alp
     print('Validation RMSE: ', best_rmse)
     print('Validation R2: ', r2_score(y_val, best_regressor.predict(X_val)))
     
-    return best_regressor
+    fig, axs = plt.subplots(1, 2, figsize=(20, 10))
+
     
+    axs[0].plot(alphas, val_rmses, label='rmse')
+    axs[0].plot(alphas, val_r2, label='r2')
+    axs[0].set_xlabel('regularization constant')
+    axs[0].set_title('Validation Metrics')
+    axs[0].legend()
+    
+    axs[1].plot(alphas, train_rmses, label='rmse')
+    axs[1].plot(alphas, train_r2, label='r2')
+    axs[1].set_xlabel('regularization constant')
+    axs[1].set_title('Training Metrics')
+    axs[1].legend()
+    
+    plt.savefig('content_model_metrics.png')
+    
+    # Predict on movies that the content model has not been trained on
+    y_test_pred = best_regressor.predict(X_test)
+    
+    # Return item vectors where 10% have been replaced by predictions from content model
+    item_factors_replaced = np.vstack((y_train, y_val, y_test_pred))
+    
+    # Retain movieIds array where index of movieId corresponds to its column index in item_factors_replaced
+    movieIds = np.vstack((movieIds_train, movieIds_val, movieIds_test)).flatten()
+    
+    return item_factors_replaced, movieIds
+
 def main(spark, netID=None):
     '''Main routine for Lab Solutions
     Parameters
@@ -140,39 +179,54 @@ def main(spark, netID=None):
     
     ratings_train, ratings_val, ratings_test = load_and_prep_ratings(path_to_file, spark, netID)
     
+    # Get the predicted rank-ordered list of movieIds for each user
+    window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
+    truth_val = truth_val.filter(truth_val.rating_count<=100)
+    truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
-    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, ratings_val)
+    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, truth_val)
     
     # Get user and item factors
-    user_factors = als_model.userFactors
-    item_factors = als_model.itemFactors
+    user_factors = als_model.userFactors.persist()
+    item_factors = als_model.itemFactors.persist()
     tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
+    item_factors_features = item_factors.join(tag_genome, item_factors.id==tag_genome.movieId)\
+                                        .drop('id')\
+                                        .withColumnRenamed('features', 'target')
+    
     
     alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
-    content_regressor = fit_content_regression(spark, user_factors, item_factors, tag_genome, alphas)
-                                            
+    item_factors_replaced, movieIds = content_regression(spark, item_factors_features, alphas)                 
     
     'TO-DO: evaluation section of full content cold start model'
+    userIds = np.array(user_factors.select('id').collect()).flatten()
+    user_factors = np.array(user_factors.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
     
+    utility_mat = user_factors @ item_factors_replaced.T
     
+    user_recs_cold_start = []
+    user_recs_columns = ['userId', 'recommendations']
+    top_n = 100
     
-    # # each set of user recommendations is in format [[movieId1, rating_pred1], [movieId2, rating_pred2], ...]
-    # # we can drop ratings and restructure to [movieId1, movieId2, ...]
-    # take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
-    # preds_val = preds_val.withColumn('recommendations', take_movieId('recommendations'))
+    for i in range(len(userIds)):
+        row = utility_mat[i,:]
+        user_id = userIds[i].tolist()
+        ind = np.argpartition(row, -top_n)[-top_n:]
+        ind = ind[np.argsort(row[ind])][::-1]
+        top_n_movieIds = movieIds[ind].tolist()
+        user_recs_cold_start.append((user_id, top_n_movieIds))
     
-    # # Join truth and predictions and evaluate
-    # preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
-    #                       .select(col('true_ranking'), col('recommendations'))\
-    #                       .rdd
-
-    # eval_metrics = RankingMetrics(preds_truth)
-    # val_map = eval_metrics.meanAveragePrecision
-    # print('Validation MAP after model tuning: ', val_map)
+    print(user_recs_cold_start[:10])
+        
+    user_recs_df = spark.createDataFrame(data=user_recs_cold_start, schema=user_recs_columns)
+    user_recs_df.show(10)
+    truth_val.show(10)
     
-    # t_complete = time.time()
-    # print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams)*len(maxIters), round(t_complete-t_prep,3)))
-    # print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
+    cold_start_map = eval_ALS(truth_val, user_recs_df)
+    
+    print('Full ALS MAP:', full_als_map)
+    print('ALS with content cold start on 10% movies:', cold_start_map)
 
  
 # Only enter this block if we're in main
@@ -180,7 +234,7 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = True # For local testing
+    local_source = False # For local testing
     full_data = True
     size = '-small' if full_data == False else ''
      
