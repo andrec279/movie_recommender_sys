@@ -183,20 +183,29 @@ def main(spark, netID=None):
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
     cold_ALS_model, cold_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
     
+    print('Getting user / item factors from cold_ALS_model..')
     # Get new model's user / item factors
     user_factors_cold = cold_ALS_model.userFactors.persist()
     item_factors_cold = cold_ALS_model.itemFactors.persist()
+    print('Done')
     
+    print('Loading user / item factors into matrix..')
     user_factors_cold_matrix = np.array(user_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
     item_factors_cold_matrix = np.array(item_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
+    print('Done')
     
     # Train / validate content model to use genome data (features) to predict item factors
+    print('Joining tag genome data..')
     tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
     item_factors_train_val = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
                                         .drop('id')\
                                         .withColumnRenamed('features', 'target')
+    print('Done')
+    
+    print('Training content model..')
     alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
-    content_model = train_content_regressor(spark, item_factors_train_val, alphas, path_to_file)   
+    content_model = train_content_regressor(spark, item_factors_train_val, alphas, path_to_file)
+    print('Done')
     
     # Join held out movies to their tag genome data, then predict their item factors using content model
     item_factors_test = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
