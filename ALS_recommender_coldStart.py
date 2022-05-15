@@ -83,7 +83,7 @@ def fit_eval_ALS(spark, ratings_train, truth_val):
     
     return als_model, val_map
 
-def train_content_regressor(spark, item_factors_features, alphas):
+def train_content_regressor(spark, item_factors_features, alphas, path_to_file):
     
     splits = item_factors_features.randomSplit([0.7, 0.3])
     train_features_data = splits[0].persist()
@@ -145,7 +145,7 @@ def train_content_regressor(spark, item_factors_features, alphas):
     axs[1].set_title('Training Metrics')
     axs[1].legend()
     
-    plt.savefig('content_model_metrics.png')
+    plt.savefig(path_to_file + 'content_model_metrics.png')
     
     return best_regressor
 
@@ -196,7 +196,7 @@ def main(spark, netID=None):
                                         .drop('id')\
                                         .withColumnRenamed('features', 'target')
     alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
-    content_model = train_content_regressor(spark, item_factors_train_val, alphas)   
+    content_model = train_content_regressor(spark, item_factors_train_val, alphas, path_to_file)   
     
     # Join held out movies to their tag genome data, then predict their item factors using content model
     item_factors_test = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
