@@ -205,9 +205,10 @@ def main(spark, netID=None):
     X_test = np.array(item_factors_test.select(X_ind).collect())
     held_out_factors_pred = content_model.predict(X_test)
     
-    print('Creating combined items matrix')
+    print('Creating combined items matrix..')
     # Combine item factors from ALS with item factors from content model
     item_factors_matrix_combined = np.vstack((item_factors_cold_matrix, held_out_factors_pred))
+    print('Done')
     
     # Similarly, combine movieIds used in ALS with movieIds used in content model
     # Here, index of movie A in movieIds = index of movie A in item_factors_matrix_combined
@@ -219,6 +220,7 @@ def main(spark, netID=None):
     print('Computing utility matrix..')
     userIds = np.array(user_factors_cold.select('id').collect()).flatten()
     utility_mat = user_factors_cold_matrix @ item_factors_matrix_combined.T
+    print('Done\n')
     print('Utility Matrix shape:', utility_mat.shape)
     
     # user_recs_cold_start = []
