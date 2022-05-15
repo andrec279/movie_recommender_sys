@@ -83,12 +83,11 @@ def fit_eval_ALS(spark, ratings_train, truth_val):
     
     return als_model, val_map
 
-def content_regression(spark, item_factors_features, alphas):
+def train_content_regressor(spark, item_factors_features, alphas):
     
-    splits = item_factors_features.randomSplit([0.6, 0.3, 0.1])
+    splits = item_factors_features.randomSplit([0.7, 0.3])
     train_features_data = splits[0].persist()
     val_features_data = splits[1].persist()
-    test_features_data = splits[2].persist()
     X_ind = [str(i) for i in range(1,1129)]
     
     y_train = np.array(train_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
@@ -98,9 +97,6 @@ def content_regression(spark, item_factors_features, alphas):
     y_val = np.array(val_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
     X_val = np.array(val_features_data.select(X_ind).collect())
     movieIds_val = np.array(val_features_data.select('movieId').collect())
-    
-    X_test = np.array(test_features_data.select(X_ind).collect())
-    movieIds_test = np.array(test_features_data.select('movieId').collect())
     
     val_rmses = np.empty(len(alphas))
     train_rmses = np.empty(len(alphas))
@@ -151,16 +147,7 @@ def content_regression(spark, item_factors_features, alphas):
     
     plt.savefig('content_model_metrics.png')
     
-    # Predict on movies that the content model has not been trained on
-    y_test_pred = best_regressor.predict(X_test)
-    
-    # Return item vectors where 10% have been replaced by predictions from content model
-    item_factors_replaced = np.vstack((y_train, y_val, y_test_pred))
-    
-    # Retain movieIds array where index of movieId corresponds to its column index in item_factors_replaced
-    movieIds = np.vstack((movieIds_train, movieIds_val, movieIds_test)).flatten()
-    
-    return item_factors_replaced, movieIds
+    return best_regressor
 
 def main(spark, netID=None):
     '''Main routine for Lab Solutions
@@ -187,46 +174,73 @@ def main(spark, netID=None):
     
     als_model, full_als_map = fit_eval_ALS(spark, ratings_train, truth_val)
     
-    # Get user and item factors
-    user_factors = als_model.userFactors.persist()
+    # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
+    movieIds = item_factors.select('id').persist()
+    movieIds_held_out_df = movieIds.sample(fraction=0.1, seed=1)
+    movieIds_held_out = np.array(movieIds_held_out_df.collect()).flatten()
+    
+    ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
+    cold_ALS_model, cold_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
+    
+    # Get new model's user / item factors
+    user_factors_cold = cold_ALS_model.userFactors.persist()
+    item_factors_cold = cold_ALS_model.itemFactors.persist()
+    
+    user_factors_cold_matrix = np.array(user_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
+    item_factors_cold_matrix = np.array(item_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
+    
+    # Train / validate content model to use genome data (features) to predict item factors
     tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
-    item_factors_features = item_factors.join(tag_genome, item_factors.id==tag_genome.movieId)\
+    item_factors_train_val = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
                                         .drop('id')\
                                         .withColumnRenamed('features', 'target')
-    
-    
     alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
-    item_factors_replaced, movieIds = content_regression(spark, item_factors_features, alphas)                 
+    content_model = train_content_regressor(spark, item_factors_train_val, alphas)   
     
-    'TO-DO: evaluation section of full content cold start model'
-    userIds = np.array(user_factors.select('id').collect()).flatten()
-    user_factors = np.array(user_factors.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
+    # Join held out movies to their tag genome data, then predict their item factors using content model
+    item_factors_test = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
+                                            .drop('id')
+    X_ind = [str(i) for i in range(1,1129)]
+    X_test = np.array(item_factors_test.select(X_ind).collect())
+    held_out_factors_pred = content_model.predict(X_test)
     
-    utility_mat = user_factors @ item_factors_replaced.T
+    # Combine item factors from ALS with item factors from content model
+    item_factors_matrix_combined = np.vstack((item_factors_cold_matrix, held_out_factors_pred))
     
-    user_recs_cold_start = []
-    user_recs_columns = ['userId', 'recommendations']
-    top_n = 100
+    # Similarly, combine movieIds used in ALS with movieIds used in content model
+    # Here, index of movie A in movieIds = index of movie A in item_factors_matrix_combined
+    movieIds_cold = np.array(item_factors_cold.select('id').collect()).flatten()
+    movieIds = np.concatenate((movieIds_cold, movieIds_held_out))
     
-    for i in range(len(userIds)):
-        row = utility_mat[i,:]
-        user_id = userIds[i].tolist()
-        ind = np.argpartition(row, -top_n)[-top_n:]
-        ind = ind[np.argsort(row[ind])][::-1]
-        top_n_movieIds = movieIds[ind].tolist()
-        user_recs_cold_start.append((user_id, top_n_movieIds))
     
-    print(user_recs_cold_start[:10])
+    # Evaluate cold start model
+    userIds = np.array(user_factors_cold.select('id').collect()).flatten()
+    utility_mat = user_factors_cold_matrix @ item_factors_matrix_combined.T
+    print('Utility Matrix shape:', utility_mat.shape)
+    
+    # user_recs_cold_start = []
+    # user_recs_columns = ['userId', 'recommendations']
+    # top_n = 100
+    
+    # for i in range(len(userIds)):
+    #     row = utility_mat[i,:]
+    #     user_id = userIds[i].tolist()
+    #     ind = np.argpartition(row, -top_n)[-top_n:]
+    #     ind = ind[np.argsort(row[ind])][::-1]
+    #     top_n_movieIds = movieIds[ind].tolist()
+    #     user_recs_cold_start.append((user_id, top_n_movieIds))
+    
+    # print(user_recs_cold_start[:10])
         
-    user_recs_df = spark.createDataFrame(data=user_recs_cold_start, schema=user_recs_columns)
-    user_recs_df.show(10)
-    truth_val.show(10)
+    # user_recs_df = spark.createDataFrame(data=user_recs_cold_start, schema=user_recs_columns)
+    # user_recs_df.show(10)
+    # truth_val.show(10)
     
-    cold_start_map = eval_ALS(truth_val, user_recs_df)
+    # cold_start_map = eval_ALS(truth_val, user_recs_df)
     
-    print('Full ALS MAP:', full_als_map)
-    print('ALS with content cold start on 10% movies:', cold_start_map)
+    # print('Full ALS MAP:', full_als_map)
+    # print('ALS with content cold start on 10% movies:', cold_start_map)
 
  
 # Only enter this block if we're in main
@@ -234,8 +248,8 @@ if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = False # For local testing
-    full_data = True
+    local_source = True # For local testing
+    full_data = False
     size = '-small' if full_data == False else ''
      
     if local_source == False:
