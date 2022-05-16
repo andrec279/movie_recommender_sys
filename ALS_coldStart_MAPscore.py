@@ -9,8 +9,6 @@ Created on Mon May 16 16:16:08 2022
 #Use getpass to obtain user netID
 import getpass
 
-from ALS_recommender_coldStart import eval_ALS, load_and_prep_ratings
-
 from pyspark.sql import SparkSession
 from pyspark.mllib.evaluation import RankingMetrics
 from pyspark.ml.recommendation import ALS
@@ -19,6 +17,41 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col, udf, row_number, monotonically_increasing_id
 from pyspark.sql.types import IntegerType, ArrayType
+
+def load_and_prep_ratings(path_to_file, spark, netID=None):
+    
+    ratings_train = spark.read.parquet(path_to_file + f'ratings_train{size}.parquet', header='true')
+    ratings_val = spark.read.parquet(path_to_file + f'ratings_val{size}.parquet', header='true')
+    ratings_test = spark.read.parquet(path_to_file + f'ratings_test{size}.parquet', header='true')
+    
+    ratings_train = ratings_train.drop('timestamp')
+    ratings_val = ratings_val.drop('timestamp')
+    ratings_test = ratings_test.drop('timestamp')
+
+    #cast movieId and userId to ints and rating to float
+    ratings_train = ratings_train.withColumn('movieId', ratings_train['movieId'].cast('integer'))
+    ratings_train = ratings_train.withColumn('userId', ratings_train['userId'].cast('integer'))
+    ratings_train = ratings_train.withColumn('rating', ratings_train['rating'].cast('float'))
+
+    ratings_val = ratings_val.withColumn('movieId', ratings_val['movieId'].cast('integer'))
+    ratings_val = ratings_val.withColumn('userId', ratings_val['userId'].cast('integer'))    
+    ratings_val = ratings_val.withColumn('rating', ratings_val['rating'].cast('float')) 
+
+    ratings_test = ratings_test.withColumn('movieId', ratings_test['movieId'].cast('integer'))
+    ratings_test = ratings_test.withColumn('userId', ratings_test['userId'].cast('integer'))
+    ratings_test = ratings_test.withColumn('rating', ratings_test['rating'].cast('float'))
+    
+    return ratings_train, ratings_val, ratings_test
+
+def eval_ALS(truth_val, preds_val):
+    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                          .select(col('true_ranking'), col('recommendations'))\
+                          .rdd
+    
+    eval_metrics = RankingMetrics(preds_truth)
+    mean_avg_precision = eval_metrics.meanAveragePrecision
+    
+    return mean_avg_precision
 
 def main(spark, netID=None):
     if local_source == False:
