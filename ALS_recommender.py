@@ -176,7 +176,7 @@ def main(spark, netID=None):
     
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams)*len(maxIters), round(t_complete-t_prep,3)))
-    print('Final Test: {}'.format(test_map))
+    print('Final Test MAP: {}'.format(test_map))
     print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
     
     
