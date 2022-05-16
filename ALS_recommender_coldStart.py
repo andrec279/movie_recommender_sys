@@ -72,7 +72,7 @@ def eval_ALS(truth_val, preds_val):
 def fit_eval_ALS(spark, ratings_train, truth_val):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-              coldStartStrategy='drop', rank=5, maxIter=5, regParam=0.005)
+              coldStartStrategy='drop', rank=150, maxIter=10, regParam=0.005)
 
     als_model = als.fit(ratings_train)
     
@@ -187,23 +187,29 @@ def main(spark, netID=None):
     # Get new model's user / item factors
     user_factors_cold = cold_ALS_model.userFactors
     item_factors_cold = cold_ALS_model.itemFactors
+    print('Got user and item factors df')
+    
+    print('Converting to np arrays...')
+    user_factors_cold_arr = np.array(user_factors_cold.select('features').collect()).squeeze()
+    item_factors_cold_arr = np.array(item_factors_cold.select('features').collect()).squeeze()
+    
+    print(user_factors_cold_arr[:5])
+    print(item_factors_cold_arr[:5])
     
     tag_genome = spark.read.parquet('tag_genome_pivot.parquet', header='true')
     item_factors_train_genome = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
                                         .drop('id')\
                                         .withColumnRenamed('features', 'target')
-    print(item_factors_train_genome.show(10))
                                         
     item_factors_test_genome = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
                                             .drop('id')\
                                             .drop('features')
-    print(item_factors_test_genome.show(10))
     
-    user_factors_cold.write.mode('overwrite').option('header', True).parquet(path_to_file + 'user_factors_cold.parquet')
-    movieIds_held_out_df.write.mode('overwrite').option('header', True).parquet(path_to_file + 'movieIds_held_out.parquet')
-    item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
-    item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
-    print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
+    # user_factors_cold.write.mode('overwrite').option('header', True).parquet(path_to_file + 'user_factors_cold.parquet')
+    # movieIds_held_out_df.write.mode('overwrite').option('header', True).parquet(path_to_file + 'movieIds_held_out.parquet')
+    # item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
+    # item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
+    # print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
 
  
 # Only enter this block if we're in main
