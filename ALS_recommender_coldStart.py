@@ -31,6 +31,9 @@ import time
 import random
 import matplotlib.pyplot as plt
 
+import dask
+import dask.array as d
+
 def load_and_prep_ratings(path_to_file, spark, netID=None):
     
     ratings_train = spark.read.parquet(path_to_file + f'ratings_train{size}.parquet', header='true')
@@ -60,8 +63,6 @@ def eval_ALS(truth_val, preds_val):
     preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
                           .select(col('true_ranking'), col('recommendations'))\
                           .rdd
-                          
-    print('preds_truth rows:', preds_truth.count())
     
     eval_metrics = RankingMetrics(preds_truth)
     mean_avg_precision = eval_metrics.meanAveragePrecision
@@ -71,7 +72,7 @@ def eval_ALS(truth_val, preds_val):
 def fit_eval_ALS(spark, ratings_train, truth_val):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-              coldStartStrategy='drop', rank=200, maxIter=10, regParam=0.005)
+              coldStartStrategy='drop', rank=5, maxIter=5, regParam=0.005)
 
     als_model = als.fit(ratings_train)
     
@@ -176,84 +177,33 @@ def main(spark, netID=None):
     
     # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
-    movieIds = item_factors.select('id').persist()
-    movieIds_held_out_df = movieIds.sample(fraction=0.1, seed=1)
-    movieIds_held_out = np.array(movieIds_held_out_df.collect()).flatten()
+    movieIds_held_out_df = item_factors.sample(fraction=0.1, seed=1)
+    movieIds_held_out = np.array(movieIds_held_out_df.select('id').collect()).flatten()
     
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
     cold_ALS_model, cold_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
     
     print('Getting user / item factors from cold_ALS_model..')
     # Get new model's user / item factors
-    user_factors_cold = cold_ALS_model.userFactors.persist()
-    item_factors_cold = cold_ALS_model.itemFactors.persist()
-    print('Done')
+    user_factors_cold = cold_ALS_model.userFactors
+    item_factors_cold = cold_ALS_model.itemFactors
     
-    print('Loading user / item factors into matrix..')
-    user_factors_cold_matrix = np.array(user_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
-    item_factors_cold_matrix = np.array(item_factors_cold.select('features').rdd.map(lambda row: np.array(row['features'])).collect())
-    print('Done')
-    
-    # Train / validate content model to use genome data (features) to predict item factors
-    print('Joining tag genome data..')
-    tag_genome = spark.read.parquet(path_to_file + 'tag_genome_pivot.parquet', header='true')
-    item_factors_train_val = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
+    tag_genome = spark.read.parquet('tag_genome_pivot.parquet', header='true')
+    item_factors_train_genome = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
                                         .drop('id')\
                                         .withColumnRenamed('features', 'target')
-    print('Done')
+    print(item_factors_train_genome.show(10))
+                                        
+    item_factors_test_genome = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
+                                            .drop('id')\
+                                            .drop('features')
+    print(item_factors_test_genome.show(10))
     
-    print('Training content model..')
-    alphas = np.array([0.1, 1, 10, 25, 50, 75, 100])
-    content_model = train_content_regressor(spark, item_factors_train_val, alphas, path_to_file)
-    print('Done')
-    
-    # Join held out movies to their tag genome data, then predict their item factors using content model
-    item_factors_test = movieIds_held_out_df.join(tag_genome, movieIds_held_out_df.id==tag_genome.movieId)\
-                                            .drop('id')
-    X_ind = [str(i) for i in range(1,1129)]
-    X_test = np.array(item_factors_test.select(X_ind).collect())
-    held_out_factors_pred = content_model.predict(X_test)
-    
-    print('Creating combined items matrix..')
-    # Combine item factors from ALS with item factors from content model
-    item_factors_matrix_combined = np.vstack((item_factors_cold_matrix, held_out_factors_pred))
-    print('Done')
-    
-    # Similarly, combine movieIds used in ALS with movieIds used in content model
-    # Here, index of movie A in movieIds = index of movie A in item_factors_matrix_combined
-    movieIds_cold = np.array(item_factors_cold.select('id').collect()).flatten()
-    movieIds = np.concatenate((movieIds_cold, movieIds_held_out))
-    
-    
-    # Evaluate cold start model
-    print('Computing utility matrix..')
-    userIds = np.array(user_factors_cold.select('id').collect()).flatten()
-    utility_mat = user_factors_cold_matrix @ item_factors_matrix_combined.T
-    print('Done\n')
-    print('Utility Matrix shape:', utility_mat.shape)
-    
-    # user_recs_cold_start = []
-    # user_recs_columns = ['userId', 'recommendations']
-    # top_n = 100
-    
-    # for i in range(len(userIds)):
-    #     row = utility_mat[i,:]
-    #     user_id = userIds[i].tolist()
-    #     ind = np.argpartition(row, -top_n)[-top_n:]
-    #     ind = ind[np.argsort(row[ind])][::-1]
-    #     top_n_movieIds = movieIds[ind].tolist()
-    #     user_recs_cold_start.append((user_id, top_n_movieIds))
-    
-    # print(user_recs_cold_start[:10])
-        
-    # user_recs_df = spark.createDataFrame(data=user_recs_cold_start, schema=user_recs_columns)
-    # user_recs_df.show(10)
-    # truth_val.show(10)
-    
-    # cold_start_map = eval_ALS(truth_val, user_recs_df)
-    
-    # print('Full ALS MAP:', full_als_map)
-    # print('ALS with content cold start on 10% movies:', cold_start_map)
+    user_factors_cold.write.mode('overwrite').option('header', True).parquet(path_to_file + 'user_factors_cold.parquet')
+    movieIds_held_out_df.write.mode('overwrite').option('header', True).parquet(path_to_file + 'movieIds_held_out.parquet')
+    item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
+    item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
+    print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
 
  
 # Only enter this block if we're in main
