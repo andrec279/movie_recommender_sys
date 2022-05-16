@@ -85,72 +85,6 @@ def fit_eval_ALS(spark, ratings_train, truth_val, truth_test):
     
     return als_model, val_map, test_map
 
-def train_content_regressor(spark, item_factors_features, alphas, path_to_file):
-    
-    splits = item_factors_features.randomSplit([0.7, 0.3])
-    train_features_data = splits[0].persist()
-    val_features_data = splits[1].persist()
-    X_ind = [str(i) for i in range(1,1129)]
-    
-    y_train = np.array(train_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
-    X_train = np.array(train_features_data.select(X_ind).collect())
-    movieIds_train = np.array(train_features_data.select('movieId').collect())
-    
-    y_val = np.array(val_features_data.select('target').rdd.map(lambda row: np.array(row['target'])).collect())
-    X_val = np.array(val_features_data.select(X_ind).collect())
-    movieIds_val = np.array(val_features_data.select('movieId').collect())
-    
-    val_rmses = np.empty(len(alphas))
-    train_rmses = np.empty(len(alphas))
-    
-    val_r2 = np.empty(len(alphas))
-    train_r2 = np.empty(len(alphas))
-    
-    regressors = []
-    
-    print('Tuning regressor...')
-    for i in range(len(alphas)):
-        multi_regressor = MultiOutputRegressor(Ridge(alpha=alphas[i]))
-        multi_regressor.fit(X_train, y_train)
-        val_rmses[i] = mean_squared_error(y_val, multi_regressor.predict(X_val))
-        train_rmses[i] = mean_squared_error(y_train, multi_regressor.predict(X_train))
-        
-        val_r2[i] = r2_score(y_val, multi_regressor.predict(X_val))
-        train_r2[i] = r2_score(y_train, multi_regressor.predict(X_train))
-        
-        regressors.append(multi_regressor)
-    print('Tuning done\n\n')
-    
-    best_rmse = np.min(val_rmses)
-    best_alpha = alphas[np.argmin(val_rmses)]
-    best_regressor = regressors[np.argmin(val_rmses)]
-    
-    print('Best alpha: ', best_alpha)
-    print('Training RMSE: ', mean_squared_error(y_train, best_regressor.predict(X_train)))
-    print('Training R2: ', r2_score(y_train, best_regressor.predict(X_train)))
-    print('\n')
-    print('Validation RMSE: ', best_rmse)
-    print('Validation R2: ', r2_score(y_val, best_regressor.predict(X_val)))
-    
-    fig, axs = plt.subplots(1, 2, figsize=(20, 10))
-
-    
-    axs[0].plot(alphas, val_rmses, label='rmse')
-    axs[0].plot(alphas, val_r2, label='r2')
-    axs[0].set_xlabel('regularization constant')
-    axs[0].set_title('Validation Metrics')
-    axs[0].legend()
-    
-    axs[1].plot(alphas, train_rmses, label='rmse')
-    axs[1].plot(alphas, train_r2, label='r2')
-    axs[1].set_xlabel('regularization constant')
-    axs[1].set_title('Training Metrics')
-    axs[1].legend()
-    
-    plt.savefig(path_to_file + 'content_model_metrics.png')
-    
-    return best_regressor
-
 def main(spark, netID=None):
     '''Main routine for Lab Solutions
     Parameters
@@ -178,7 +112,7 @@ def main(spark, netID=None):
     truth_test = truth_test.filter(truth_test.rating_count<=100)
     truth_test = truth_test.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
-    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, truth_val, truth_test)
+    als_model, val_map, test_map = fit_eval_ALS(spark, ratings_train, truth_val, truth_test)
     
     # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
@@ -204,12 +138,11 @@ def main(spark, netID=None):
                                             .drop('features')
     
     user_factors_cold.write.mode('overwrite').option('header', True).parquet(path_to_file + 'user_factors_cold.parquet')
-    movieIds_held_out_df.write.mode('overwrite').option('header', True).parquet(path_to_file + 'movieIds_held_out.parquet')
     item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
     item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
     
-    print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
-    print('Full ALS Test set MAP:', )
+    print('Done, wrote user_factors_cold, item_factors_train_genome, item_factors_test_genome to parquet')
+    print('Full ALS Test set MAP:', test_map)
     print('Completed in {} seconds'.format(time.time() - t0))
  
 # Only enter this block if we're in main
