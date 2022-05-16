@@ -50,11 +50,21 @@ def load_and_prep_ratings(path_to_file, spark, netID=None):
     
     return ratings_train, ratings_val, ratings_test
 
+def eval_ALS(truth_val, preds_val):
+    preds_truth = truth_val.join(preds_val, truth_val.userId == preds_val.userId, 'inner')\
+                          .select(col('true_ranking'), col('recommendations'))\
+                          .rdd
+    
+    eval_metrics = RankingMetrics(preds_truth)
+    mean_avg_precision = eval_metrics.meanAveragePrecision
+    
+    return mean_avg_precision
+
 def fit_eval_ALS(spark, ratings_train, ratings_val, params):
     
     # Get the predicted rank-ordered list of movieIds for each user
-    window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
+    window_truth = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth))
     truth_val = truth_val.filter(truth_val.rating_count<=100)
     truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
@@ -117,6 +127,10 @@ def fit_eval_ALS(spark, ratings_train, ratings_val, params):
     print('Best maxIter: ', best_maxIter)
     print('Best MAP on validation set: ', best_val_map)
     
+    print('\n\n')
+    
+    print('Final MAP on test set: ')
+    
     return best_model
 
 def main(spark, netID=None):
@@ -146,12 +160,26 @@ def main(spark, netID=None):
     
     params = {'regParams': regParams, 'ranks': ranks, 'maxIters': maxIters}
     
-    als_model = fit_eval_ALS(spark, ratings_train, ratings_val, params)
+    als_model = fit_eval_ALS(spark, ratings_train, ratings_val, ratings_test, params)
+    
+    # Evaluate model on test set and print results
+    window_truth = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    truth_test = ratings_test.withColumn('rating_count', F.row_number().over(window_truth))
+    truth_test = truth_test.filter(truth_test.rating_count<=100)
+    truth_test = truth_test.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
+    
+    preds_test = als_model.recommendForAllUsers(100)
+    take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
+    preds_test = preds_test.withColumn('recommendations', take_movieId('recommendations'))
+    
+    test_map = eval_ALS(truth_test, preds_test)
     
     t_complete = time.time()
     print('\nTraining time (.csv) for {} configurations: {} seconds'.format(len(ranks)*len(regParams)*len(maxIters), round(t_complete-t_prep,3)))
+    print('Final Test: {}'.format(test_map))
     print('\nTotal runtime: {} seconds'.format(round(t_complete-t0, 3)))
-
+    
+    
  
 # Only enter this block if we're in main
 if __name__ == "__main__":
