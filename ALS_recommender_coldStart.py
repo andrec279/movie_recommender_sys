@@ -72,7 +72,7 @@ def eval_ALS(truth_val, preds_val):
 def fit_eval_ALS(spark, ratings_train, truth_val):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-              coldStartStrategy='drop', rank=150, maxIter=10, regParam=0.005)
+              coldStartStrategy='drop', rank=50, maxIter=10, regParam=0.005)
 
     als_model = als.fit(ratings_train)
     
@@ -177,7 +177,7 @@ def main(spark, netID=None):
     
     # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
-    movieIds_held_out_df = item_factors.sample(fraction=0.1, seed=1)
+    movieIds_held_out_df = item_factors.sample(fraction=0.05, seed=1)
     movieIds_held_out = np.array(movieIds_held_out_df.select('id').collect()).flatten()
     
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
@@ -210,15 +210,16 @@ def main(spark, netID=None):
     item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
     item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
     print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
-
+    print('')
+    print('Completed in {} seconds'.format(time.time() - t0))
  
 # Only enter this block if we're in main
 if __name__ == "__main__":
     # Create the spark session object
     spark = SparkSession.builder.appName('part1').getOrCreate()
     
-    local_source = False # For local testing
-    full_data = True
+    local_source = True # For local testing
+    full_data = False
     size = '-small' if full_data == False else ''
      
     if local_source == False:
