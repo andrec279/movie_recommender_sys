@@ -73,8 +73,10 @@ def fit_eval_ALS(spark, ratings_train, truth_val, truth_test):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
               coldStartStrategy='drop', rank=150, maxIter=10, regParam=0.005)
-
+    t_train_start = time.time()
     als_model = als.fit(ratings_train)
+    
+    print('ALS model training time: {} seconds'.format(time.time-t_train_start))
     
     preds_val = als_model.recommendForAllUsers(100)
     take_movieId = udf(lambda rows: [row[0] for row in rows], ArrayType(IntegerType()))
