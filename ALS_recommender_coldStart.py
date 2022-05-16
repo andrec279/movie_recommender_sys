@@ -69,10 +69,10 @@ def eval_ALS(truth_val, preds_val):
     
     return mean_avg_precision
 
-def fit_eval_ALS(spark, ratings_train, truth_val):
+def fit_eval_ALS(spark, ratings_train, truth_val, truth_test):
     
     als = ALS(userCol='userId', itemCol='movieId', ratingCol='rating', 
-              coldStartStrategy='drop', rank=50, maxIter=10, regParam=0.005)
+              coldStartStrategy='drop', rank=150, maxIter=10, regParam=0.005)
 
     als_model = als.fit(ratings_train)
     
@@ -81,8 +81,9 @@ def fit_eval_ALS(spark, ratings_train, truth_val):
     preds_val = preds_val.withColumn('recommendations', take_movieId('recommendations'))
     
     val_map = eval_ALS(truth_val, preds_val)
+    test_map = eval_ALS(truth_test, preds_val)
     
-    return als_model, val_map
+    return als_model, val_map, test_map
 
 def train_content_regressor(spark, item_factors_features, alphas, path_to_file):
     
@@ -168,12 +169,16 @@ def main(spark, netID=None):
     ratings_train, ratings_val, ratings_test = load_and_prep_ratings(path_to_file, spark, netID)
     
     # Get the predicted rank-ordered list of movieIds for each user
-    window_truth_val = Window.partitionBy('userId').orderBy(F.col('rating').desc())
-    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth_val))
+    window_truth = Window.partitionBy('userId').orderBy(F.col('rating').desc())
+    truth_val = ratings_val.withColumn('rating_count', F.row_number().over(window_truth))
     truth_val = truth_val.filter(truth_val.rating_count<=100)
     truth_val = truth_val.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
-    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, truth_val)
+    truth_test = ratings_test.withColumn('rating_count', F.row_number().over(window_truth))
+    truth_test = truth_test.filter(truth_test.rating_count<=100)
+    truth_test = truth_test.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
+    
+    als_model, full_als_map = fit_eval_ALS(spark, ratings_train, truth_val, truth_test)
     
     # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
@@ -181,20 +186,13 @@ def main(spark, netID=None):
     movieIds_held_out = np.array(movieIds_held_out_df.select('id').collect()).flatten()
     
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
-    cold_ALS_model, cold_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
+    cold_ALS_model, cold_map, cold_test_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
     
     print('Getting user / item factors from cold_ALS_model..')
     # Get new model's user / item factors
     user_factors_cold = cold_ALS_model.userFactors
     item_factors_cold = cold_ALS_model.itemFactors
     print('Got user and item factors df')
-    
-    # print('Converting to np arrays...')
-    # user_factors_cold_arr = np.array(user_factors_cold.select('features').collect()).squeeze()
-    # item_factors_cold_arr = np.array(item_factors_cold.select('features').collect()).squeeze()
-    
-    # print(user_factors_cold_arr[:5])
-    # print(item_factors_cold_arr[:5])
     
     tag_genome = spark.read.parquet('tag_genome_pivot.parquet', header='true')
     item_factors_train_genome = item_factors_cold.join(tag_genome, item_factors_cold.id==tag_genome.movieId)\
@@ -209,8 +207,9 @@ def main(spark, netID=None):
     movieIds_held_out_df.write.mode('overwrite').option('header', True).parquet(path_to_file + 'movieIds_held_out.parquet')
     item_factors_train_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_train_genome.parquet')
     item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
+    
     print('Done, wrote user_factors_cold, movieIds_held_out_df, item_factors_train_genome, item_factors_test_genome to parquet')
-    print('')
+    print('Full ALS Test set MAP:', )
     print('Completed in {} seconds'.format(time.time() - t0))
  
 # Only enter this block if we're in main
