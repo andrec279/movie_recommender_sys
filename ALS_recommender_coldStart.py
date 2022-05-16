@@ -113,6 +113,8 @@ def main(spark, netID=None):
     truth_test = truth_test.groupby('userId').agg(collect_list('movieId').alias('true_ranking'))
     
     als_model, val_map, test_map = fit_eval_ALS(spark, ratings_train, truth_val, truth_test)
+    print('Full ALS model training / evaluation complete in {} seconds'.format(time.time()-t0))
+    print('Full ALS Test set MAP:', test_map)
     
     # Get holdout set of movieIds, remove from training set, and train new ALS model (simulate cold start)
     item_factors = als_model.itemFactors.persist()
@@ -121,6 +123,7 @@ def main(spark, netID=None):
     
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
     cold_ALS_model, cold_map, cold_test_map = fit_eval_ALS(spark, ratings_train_cold, truth_val, truth_test)
+    
     
     print('Getting user / item factors from cold_ALS_model..')
     # Get new model's user / item factors
@@ -142,8 +145,8 @@ def main(spark, netID=None):
     item_factors_test_genome.write.mode('overwrite').option('header', True).parquet(path_to_file + 'item_factors_test_genome.parquet')
     
     print('Done, wrote user_factors_cold, item_factors_train_genome, item_factors_test_genome to parquet')
-    print('Full ALS Test set MAP:', test_map)
-    print('Completed in {} seconds'.format(time.time() - t0))
+    
+    print('Full run completed in {} seconds'.format(time.time() - t0))
  
 # Only enter this block if we're in main
 if __name__ == "__main__":
