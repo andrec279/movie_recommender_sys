@@ -120,7 +120,7 @@ def main(spark, netID=None):
     movieIds_held_out = np.array(movieIds_held_out_df.select('id').collect()).flatten()
     
     ratings_train_cold = ratings_train.filter(~col('movieId').isin(movieIds_held_out.tolist()))
-    cold_ALS_model, cold_map, cold_test_map = fit_eval_ALS(spark, ratings_train_cold, truth_val)
+    cold_ALS_model, cold_map, cold_test_map = fit_eval_ALS(spark, ratings_train_cold, truth_val, truth_test)
     
     print('Getting user / item factors from cold_ALS_model..')
     # Get new model's user / item factors
