@@ -6,7 +6,7 @@ This project represents my first attempt at building a relatively large-scale co
 4. Data preprocessing strategies for recommender systems
 5. Evaluation strategies for recommender systems
 
-This project was completed as a final course project at NYU, and leveraged NYU's cluster environment for data storage and model execution. All code included in this repository was initially written by myself, with some updates and contributions from teammates.
+This project was completed for one of my courses in NYU's Masters in Data Science program, and leveraged NYU's cluster environment for data storage and model execution. All code included in this repository was initially written by myself, with some updates and contributions from teammates.
 
 # Overview
 
