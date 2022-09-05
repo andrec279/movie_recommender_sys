@@ -8,11 +8,7 @@ This project represents my first attempt at building a relatively large-scale co
 
 This project was completed for one of my courses in NYU's Masters in Data Science program, and leveraged NYU's cluster environment for data storage and model execution. All code included in this repository was initially written by myself, with some updates and contributions from teammates.
 
-# Overview
-
-Below is a description of the input data, model implementation, and final results.
-
-## Data
+# Data
 
 For this project, we used the [MovieLens](https://grouplens.org/datasets/movielens/latest/) datasets collected by 
 > F. Maxwell Harper and Joseph A. Konstan. 2015. 
@@ -24,7 +20,7 @@ The MovieLens dataset contains ratings from about 280,000 users on over 58,000 u
 **Note on train-validation-test splits:** When splitting the data into train-validation-test partitions, we separated the interactions (rating) data temporally (earlier interaction timestamps in training, later interaction timestamps in validation / test, as would be the case in production). Additionally, we performed splits along interaction data for each user to ensure users in the evaluation sets were trained on in the training data and removed users / items for which interactions data was too limited (below some established threshold). This effectively meant we chose to evaluate our system on users and items above a certain "maturity" level.
 
 
-## Model Implementation
+# Model Implementation
 We built three different versions of a movie recommender system for evaluation and comparison, varying strategies for data preparation, feature engineering, and model implementation for each. In each approach, the goal was the same: **produce 100 recommendations for each user in the dataset that are as close to their actual top 100 rated movies as possible.** All three versions are outlined below.
 
 ### Version 1: Popularity Baseline Model
@@ -51,7 +47,7 @@ The modified approach to generating and evaluating user / item representations u
 5. Generate top 100 movie recommendations for each user using the same Nearest Neighbor search approach in Version 2: Latent Factor Model.
 
 
-## Evaluation, Results, and Discussion
+# Evaluation, Results, and Discussion
 Models were evaluated on how closely the top 100 recommendations for each user matched their top 100-ranked movies by rating on average, taking order into account. To do so, we computed ranking *Mean Average Precision* (MAP) for each model using PySpark's implementation in their [mllib-evaluation-metrics module](https://spark.apache.org/docs/3.0.1/mllib-evaluation-metrics.html#ranking-systems). 
 
 MAP results for each of the 3 model versions were as follows:
@@ -62,6 +58,6 @@ MAP results for each of the 3 model versions were as follows:
 It appears that using collaborative filtering for personalization of recommendations drove a significant improvement in performance over the baseline, while the first iteration of our content cold-start approach underperformed relative to baseline. Overall, it's worth noting that all three MAP scores appear quite low, which may have been due in large part to penalization of incorrectly ordered movie recommendations. In future work building recommendation systems, it may be worth exploring alternative evaluation metrics, such as Precision @ k, that don't take ordering into account to get a more holistic profile of model performance.
 
 
-## Credits: 
+# Credits: 
 - Thank you to Adi Srikanth and Jin Ishizuka as contributors on this project, who helped build a baseline popularity model for comparison against the ALS recommender model and fix / tune the ALS model as needed
 - Thank you to Professor Brian McFee for guidance and the NYU High Performance Computing group for allowing use of their cluster resources throughout this project
