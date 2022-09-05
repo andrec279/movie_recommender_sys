@@ -6,7 +6,7 @@ This project represents my first attempt at building a relatively large-scale co
 4. Data preprocessing strategies for recommender systems
 5. Evaluation strategies for recommender systems
 
-This project was completed as a final course project at NYU, and leveraged NYU's cluster environment for data storage and model execution.
+This project was completed as a final course project at NYU, and leveraged NYU's cluster environment for data storage and model execution. All code included in this repository was initially written by myself, with some updates and contributions from teammates.
 
 # Overview
 
@@ -21,7 +21,7 @@ For this project, we used the [MovieLens](https://grouplens.org/datasets/moviele
 
 The MovieLens dataset contains ratings from about 280,000 users on over 58,000 unique movies. Additionally, we used data contains content-based features for 10,000 movies in the MovieLens dataset in the form of "tag relevancy scores", collected by [GroupLens](https://grouplens.org/datasets/movielens/tag-genome/). Both datasets are hosted in NYU's HPC environment. Timestamped ratings data served as the main data source for this project, as they provided the user-item interactions data required to produce vectorized user / item representations for our recommender model.
 
-**Note on train-validation-test splits:** When splitting the data into train-validation-test partitions, we separated the interactions (rating) data temporally (earlier interaction timestamps in training, later interaction timestamps in validation / test, as would be the case in production). Additionally, we performed splits along interaction data for each user to ensure users in the evaluation sets were trained on in the training data and removed users / items for which interactions data was too limited (below some established threshold). In doing so, we ensured model evaluation was more representative of production settings and that we were only evaluating on users and items above a certain "maturity" level.
+**Note on train-validation-test splits:** When splitting the data into train-validation-test partitions, we separated the interactions (rating) data temporally (earlier interaction timestamps in training, later interaction timestamps in validation / test, as would be the case in production). Additionally, we performed splits along interaction data for each user to ensure users in the evaluation sets were trained on in the training data and removed users / items for which interactions data was too limited (below some established threshold). This effectively meant we chose to evaluate our system on users and items above a certain "maturity" level.
 
 
 ## Model Implementation
@@ -38,43 +38,29 @@ To implement the ALS model on our ratings dataset, we used PySpark's ALS impleme
 - **RegParam**: Weight assigned to regularization term in the ALS objective function to prevent overfitting
 - **MaxIter**: Maximum number of ALS training iterations used to compute optimal U and V matrices
 
-At model inference time, we used scikit-learn's Nearest Neighbors search implementation to identify the top 100 item factors for each user factor by increasing cosine distance. The intuition behind using this approach is that since the ratings matrix R contains ratings, and UV approximates R, the dot product of row U_i and column V_i represents user i's affinity for item i, and cosine distance between vectors is inversely related to their dot product.
+At model inference time, we used scikit-learn's Nearest Neighbors search implementation to identify the top 100 item factors for each user factor by increasing cosine distance. The intuition behind using this approach was that since the ratings matrix R contains ratings (user-item affinity scores), and we assume UV approximates R reasonably well, the dot product of row U_i and column V_i should represent user i's affinity for item i, and cosine distance between vectors is inversely related to their dot product.
 
 ### Version 3: Latent Factor Model with Content Cold Start
 Version 3 builds upon Version 2 and attempts to address the problem of content cold start that arises in production recommender systems: when new items are added to a catalogue, a pure collaborative filtering approach fails for that item due to lack of prior interaction data for the product. Here we explore an approach to produce and evaluate content-based item representations to remedy this issue. To obtain content data for this approach, we used the "tag relevancy scores" dataset from GroupLens (see the **Data** section for reference), which provides a list of relevancy scores for different content-based tags (think tags that frequently associate with Netflix shows like "funny", "dark", "sophisticated") for 10,000 movies that appear in the original MovieLens ratings dataset.
 
-The modified approach to generating user / item representations using ALS with Content Cold Start then proceeded as follows.
-To learn content-based item representations from the GroupLens tag data, we used a multivariate multiple linear regression model, using tag scores as features to learn the d-dimensional item factors in place of ALS.
+The modified approach to generating and evaluating user / item representations using ALS with Content Cold Start proceeded as follows:
+1. Generate d-dimensional user / item factors from all interactions data using pure collaborative filtering (ALS)
+2. For movies with GroupLens tag data, train a multivariate multiple regression model (with L2 regularization) to learn the movie's d-dimensional item factors generated in step 1 from content information (tag scores).
+3. Remove all interaction data for 10% of movies from the original MovieLens rating dataset to simulate cold start conditions, and generate a new set of user / item factors with the remaining interactions data using ALS
+4. Use the regression model from step 2 to compute item factors for the 10% of held out items from step 1 and append those factors to the items matrix generated in step 3.
+5. Generate top 100 movie recommendations for each user using the same Nearest Neighbor search approach in Version 2: Latent Factor Model.
 
 
-## Basic recommender system [80% of grade]
+## Evaluation, Results, and Discussion
+Models were evaluated on how closely the top 100 recommendations for each user matched their top 100-ranked movies by rating on average, taking order into account. To do so, we computed ranking *Mean Average Precision* (MAP) for each model using PySpark's implementation in their [mllib-evaluation-metrics module](https://spark.apache.org/docs/3.0.1/mllib-evaluation-metrics.html#ranking-systems). 
 
-1.  As a first step, you will need to partition the rating data into training, validation, and test samples as discussed in lecture.
-    I recommend writing a script do this in advance, and saving the partitioned data for future use.
-    This will reduce the complexity of your experiment code down the line, and make it easier to generate alternative splits if you want to measure the stability of your
-    implementation.
+MAP results for each of the 3 model versions were as follows:
+- Version 1 (Baseline): 0.017
+- Version 2 (Latent Factor): 0.028
+- Version 3 (Latent Factor with Cold Start): 0.011
 
-2.  Before implementing a sophisticated model, you should begin with a popularity baseline model as discussed in class.
-    This should be simple enough to implement with some basic dataframe computations.
-    Evaluate your popularity baseline (see below) before moving on to the enxt step.
+It appears that using collaborative filtering for personalization of recommendations drove a significant improvement in performance over the baseline, while the first iteration of our content cold-start approach underperformed relative to baseline. Overall, it's worth noting that all three MAP scores appear quite low, which may have been due in large part to penalization of incorrectly ordered movie recommendations. In future work building recommendation systems, it may be worth exploring alternative evaluation metrics, such as Precision @ k, that don't take ordering into account to get a more holistic profile of model performance.
 
-3.  Your recommendation model should use Spark's alternating least squares (ALS) method to learn latent factor representations for users and items.
-    Be sure to thoroughly read through the documentation on the [pyspark.ml.recommendation module](https://spark.apache.org/docs/3.0.1/ml-collaborative-filtering.html) before getting started.
-    This model has some hyper-parameters that you should tune to optimize performance on the validation set, notably: 
-      - the *rank* (dimension) of the latent factors, and
-      - the regularization parameter.
-
-### Evaluation
-
-Once you are able to make predictions—either from the popularity baseline or the latent factor model—you will need to evaluate accuracy on the validation and test data.
-Scores for validation and test should both be reported in your write-up.
-Evaluations should be based on predictions of the top 100 items for each user, and report the ranking metrics provided by spark.
-Refer to the [ranking metrics](https://spark.apache.org/docs/3.0.1/mllib-evaluation-metrics.html#ranking-systems) section of the Spark documentation for more details.
-
-The choice of evaluation criteria for hyper-parameter tuning is up to you, as is the range of hyper-parameters you consider, but be sure to document your choices in the final report.
-As a general rule, you should explore ranges of each hyper-parameter that are sufficiently large to produce observable differences in your evaluation score.
-
-  - *Cold-start*: using supplementary metadata (tags, genres, etc), build a model that can map observable data to the learned latent factor representation for items.  To evaluate its accuracy, simulate a cold-start scenario by holding out a subset of items during training (of the recommender model), and compare its performance to a full collaborative filter model.  *Hint:* you may want to use dask for this.
 
 ## Credits: 
 - Thank you to Adi Srikanth and Jin Ishizuka as contributors on this project, who helped build a baseline popularity model for comparison against the ALS recommender model and fix / tune the ALS model as needed
